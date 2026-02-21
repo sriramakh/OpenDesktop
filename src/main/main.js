@@ -1,0 +1,187 @@
+const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const path = require('path');
+const { AgentCore } = require('./agent/core');
+const { ToolRegistry } = require('./agent/tools/registry');
+const { MemorySystem } = require('./agent/memory');
+const { PermissionManager } = require('./agent/permissions');
+const { ContextAwareness } = require('./agent/context');
+const { KeyStore } = require('./agent/keystore');
+const { getModelCatalog, listOllamaModels } = require('./agent/llm');
+
+let mainWindow = null;
+let agentCore = null;
+
+const isDev = !app.isPackaged;
+
+function createWindow() {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+
+  mainWindow = new BrowserWindow({
+    width: Math.min(1400, width),
+    height: Math.min(900, height),
+    minWidth: 800,
+    minHeight: 600,
+    frame: false,
+    titleBarStyle: 'hiddenInset',
+    vibrancy: 'under-window',
+    backgroundColor: '#0a0a0f',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+    icon: path.join(__dirname, '../../assets/icon.png'),
+  });
+
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '../../dist/renderer/index.html'));
+  }
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+}
+
+async function initializeAgent() {
+  const userDataPath = app.getPath('userData');
+  const memory = new MemorySystem(userDataPath);
+  const permissions = new PermissionManager();
+  const context = new ContextAwareness();
+  const toolRegistry = new ToolRegistry(permissions);
+  const keyStore = new KeyStore(userDataPath);
+
+  agentCore = new AgentCore({
+    memory,
+    permissions,
+    context,
+    toolRegistry,
+    keyStore,
+    emit: (channel, data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, data);
+      }
+    },
+  });
+
+  await memory.initialize();
+  await keyStore.initialize();
+  await toolRegistry.registerBuiltinTools();
+  console.log('[OpenDesktop] Agent initialized');
+}
+
+function setupIPC() {
+  // Agent message handling
+  ipcMain.handle('agent:send-message', async (_event, { message, persona }) => {
+    try {
+      return await agentCore.handleUserMessage(message, persona);
+    } catch (err) {
+      console.error('[IPC] agent:send-message error:', err);
+      return { error: err.message };
+    }
+  });
+
+  // Cancel current task
+  ipcMain.handle('agent:cancel', async () => {
+    agentCore.cancel();
+    return { ok: true };
+  });
+
+  // Approval response from user
+  ipcMain.handle('agent:approval-response', async (_event, { requestId, approved, note }) => {
+    agentCore.resolveApproval(requestId, approved, note);
+    return { ok: true };
+  });
+
+  // Memory queries
+  ipcMain.handle('memory:search', async (_event, { query, limit }) => {
+    return agentCore.memory.search(query, limit);
+  });
+
+  ipcMain.handle('memory:get-history', async (_event, { limit }) => {
+    return agentCore.memory.getRecentHistory(limit);
+  });
+
+  // Context
+  ipcMain.handle('context:get-active', async () => {
+    return agentCore.context.getActiveContext();
+  });
+
+  // Settings
+  ipcMain.handle('settings:get', async () => {
+    return agentCore.getSettings();
+  });
+
+  ipcMain.handle('settings:update', async (_event, settings) => {
+    return agentCore.updateSettings(settings);
+  });
+
+  // Tool list
+  ipcMain.handle('tools:list', async () => {
+    return agentCore.toolRegistry.listTools();
+  });
+
+  // Model catalog
+  ipcMain.handle('models:catalog', async () => {
+    return getModelCatalog();
+  });
+
+  // Ollama local model discovery
+  ipcMain.handle('models:ollama-list', async (_event, { endpoint } = {}) => {
+    return listOllamaModels(endpoint);
+  });
+
+  // Encrypted API key management
+  ipcMain.handle('keys:set', async (_event, { provider, apiKey }) => {
+    await agentCore.keyStore.setKey(provider, apiKey);
+    return { ok: true };
+  });
+
+  ipcMain.handle('keys:remove', async (_event, { provider }) => {
+    await agentCore.keyStore.removeKey(provider);
+    return { ok: true };
+  });
+
+  ipcMain.handle('keys:list', async () => {
+    return agentCore.keyStore.listKeys();
+  });
+
+  ipcMain.handle('keys:has', async (_event, { provider }) => {
+    return agentCore.keyStore.hasKey(provider);
+  });
+
+  // Window controls
+  ipcMain.on('window:minimize', () => mainWindow?.minimize());
+  ipcMain.on('window:maximize', () => {
+    if (mainWindow?.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow?.maximize();
+    }
+  });
+  ipcMain.on('window:close', () => mainWindow?.close());
+}
+
+app.whenReady().then(async () => {
+  await initializeAgent();
+  createWindow();
+  setupIPC();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  if (agentCore) {
+    agentCore.memory.close();
+    agentCore.keyStore.close();
+  }
+});
