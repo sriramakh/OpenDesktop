@@ -348,56 +348,246 @@ async function readPDF(filePath, opts = {}) {
  * Search for terms/phrases within a PDF and return matching pages with context.
  * Returns { total, matchCount, matches: [{page, line, context}] }
  */
+/**
+ * searchPDF(filePath, query, opts)
+ *
+ * Key fix over the old version:
+ *  - Searches the FULL normalized page text (not line-by-line) so multi-line
+ *    phrases like "augmented\npiotroski score" are always found.
+ *  - Uses PyMuPDF (fitz) as primary extractor + pdfplumber fallback.
+ *  - Returns surrounding context as original lines from around the match position.
+ *  - Flags image-based (scanned) pages so the caller knows to use OCR.
+ */
 async function searchPDF(filePath, query, opts = {}) {
-  const { maxResults = 30, contextLines = 3 } = opts;
+  const { maxResults = 50, contextChars = 300 } = opts;
 
   const script = `
 import sys, json, re
-try:
-    import pdfplumber
-except ImportError:
-    print(json.dumps({'error': 'pdfplumber not installed. Run: pip install pdfplumber'}))
-    sys.exit(0)
 
 pdf_path    = sys.argv[1]
-query       = sys.argv[2]
-max_results = int(sys.argv[3]) if len(sys.argv) > 3 else 30
-ctx_lines   = int(sys.argv[4]) if len(sys.argv) > 4 else 3
+query       = sys.argv[2].lower()
+max_results = int(sys.argv[3]) if len(sys.argv) > 3 else 50
+ctx_chars   = int(sys.argv[4]) if len(sys.argv) > 4 else 300
+
+def extract_page_text(pdf_path):
+    """Try PyMuPDF first, pdfplumber fallback. Returns list of {page, raw_text}."""
+    pages_out = []
+    total = 0
+    # Strategy 1: PyMuPDF (fitz) — robust for research papers, journals
+    try:
+        import fitz
+        doc = fitz.open(pdf_path)
+        total = len(doc)
+        for i in range(total):
+            raw = doc[i].get_text('text') or ''
+            pages_out.append({'page': i + 1, 'text': raw, 'chars': len(raw.strip()), 'method': 'fitz'})
+        doc.close()
+        return total, pages_out
+    except Exception as e_fitz:
+        pass
+
+    # Strategy 2: pdfplumber fallback
+    try:
+        import pdfplumber
+        with pdfplumber.open(pdf_path) as pdf:
+            total = len(pdf.pages)
+            for i, p in enumerate(pdf.pages):
+                raw = p.extract_text(x_tolerance=3, y_tolerance=3) or ''
+                pages_out.append({'page': i + 1, 'text': raw, 'chars': len(raw.strip()), 'method': 'plumber'})
+        return total, pages_out
+    except Exception as e_plumb:
+        return 0, []
+
+def normalize_for_search(text):
+    """Collapse line breaks into spaces so cross-line phrases are found."""
+    # Fix hyphenated line-breaks common in justified text: "aug-\\nmented" -> "augmented"
+    text = re.sub(r'(\\w)-\\n(\\w)', r'\\1\\2', text)
+    # Replace all whitespace sequences (\\n, \\t, multiple spaces) with single space
+    text = re.sub(r'\\s+', ' ', text)
+    return text
+
+def get_context(raw_text, match_start, match_end, ctx_chars):
+    """Extract surrounding context as a clean snippet."""
+    start = max(0, match_start - ctx_chars)
+    end   = min(len(raw_text), match_end + ctx_chars)
+    snippet = raw_text[start:end].strip()
+    # Clean up excessive whitespace
+    snippet = re.sub(r'\\s+', ' ', snippet)
+    return ('...' if start > 0 else '') + snippet + ('...' if end < len(raw_text) else '')
 
 try:
+    total, pages = extract_page_text(pdf_path)
+    if not pages:
+        print(json.dumps({'error': 'Could not extract text from PDF', 'total_pages': 0, 'matches': []}))
+        sys.exit(0)
+
     pattern = re.compile(re.escape(query), re.IGNORECASE)
-except Exception:
-    pattern = None
+    matches = []
+    scanned_pages = []
 
-matches = []
-total = 0
-try:
-    with pdfplumber.open(pdf_path) as pdf:
-        total = len(pdf.pages)
-        for i, page in enumerate(pdf.pages):
-            text = page.extract_text(x_tolerance=3, y_tolerance=3) or ''
-            lines = text.split('\\n')
-            for j, line in enumerate(lines):
-                if (pattern and pattern.search(line)) or (not pattern and query.lower() in line.lower()):
-                    start = max(0, j - ctx_lines)
-                    end   = min(len(lines), j + ctx_lines + 1)
-                    context = '\\n'.join(lines[start:end])
-                    matches.append({
-                        'page': i + 1,
-                        'line_num': j + 1,
-                        'line': line.strip(),
-                        'context': context.strip(),
-                    })
-                    if len(matches) >= max_results:
-                        break
+    for p in pages:
+        raw   = p['text']
+        pg_no = p['page']
+
+        if len(raw.strip()) < 30:
+            scanned_pages.append(pg_no)
+            continue
+
+        # Normalize for search (joins cross-line phrases)
+        norm = normalize_for_search(raw)
+
+        # Find all non-overlapping matches in the normalized text
+        for m in pattern.finditer(norm):
+            # Map back to approximate position in original for context
+            ctx = get_context(norm, m.start(), m.end(), ctx_chars)
+            matches.append({
+                'page':    pg_no,
+                'match':   m.group(0),
+                'context': ctx,
+                'char_pos': m.start(),
+            })
             if len(matches) >= max_results:
                 break
-    print(json.dumps({'matches': matches, 'total_pages': total}))
+        if len(matches) >= max_results:
+            break
+
+    result = {
+        'matches':       matches,
+        'total_pages':   total,
+        'scanned_pages': scanned_pages,
+        'match_count':   len(matches),
+    }
+    print(json.dumps(result))
 except Exception as e:
-    print(json.dumps({'error': str(e)}))
+    print(json.dumps({'error': str(e), 'matches': [], 'total_pages': 0}))
 `;
 
-  return runPythonScript(script, [filePath, query, maxResults, contextLines]);
+  return runPythonScript(script, [filePath, query, maxResults, contextChars], 120000);
+}
+
+/**
+ * searchAcrossPDFs(directory, query, opts)
+ *
+ * Batch-search across ALL PDFs in a directory (recursive) in ONE Python process.
+ * Much faster than calling office_pdf_search once per file.
+ * Returns aggregated results: [{file, page, context}]
+ */
+async function searchAcrossPDFs(directory, query, opts = {}) {
+  const { maxResultsPerFile = 10, maxFiles = 200, recursive = true, contextChars = 250 } = opts;
+
+  const script = `
+import sys, json, re, os, glob
+
+directory      = sys.argv[1]
+query          = sys.argv[2].lower()
+max_per_file   = int(sys.argv[3]) if len(sys.argv) > 3 else 10
+max_files      = int(sys.argv[4]) if len(sys.argv) > 4 else 200
+recursive_srch = sys.argv[5].lower() == 'true' if len(sys.argv) > 5 else True
+ctx_chars      = int(sys.argv[6]) if len(sys.argv) > 6 else 250
+
+# Find all PDFs
+if recursive_srch:
+    pdfs = glob.glob(os.path.join(directory, '**', '*.pdf'), recursive=True) + \\
+           glob.glob(os.path.join(directory, '**', '*.PDF'), recursive=True)
+else:
+    pdfs = glob.glob(os.path.join(directory, '*.pdf')) + \\
+           glob.glob(os.path.join(directory, '*.PDF'))
+
+pdfs = list(set(pdfs))[:max_files]
+
+def normalize(text):
+    text = re.sub(r'(\\w)-\\n(\\w)', r'\\1\\2', text)
+    return re.sub(r'\\s+', ' ', text)
+
+def get_ctx(text, ms, me, ctx):
+    s = max(0, ms - ctx)
+    e = min(len(text), me + ctx)
+    snip = re.sub(r'\\s+', ' ', text[s:e].strip())
+    return ('...' if s > 0 else '') + snip + ('...' if e < len(text) else '')
+
+pattern = re.compile(re.escape(query), re.IGNORECASE)
+
+all_matches  = []
+searched     = 0
+failed       = []
+scanned_note = []
+
+try:
+    import fitz
+    has_fitz = True
+except ImportError:
+    has_fitz = False
+
+for pdf_path in pdfs:
+    searched += 1
+    file_matches = []
+    try:
+        pages_text = []
+        total_p = 0
+
+        if has_fitz:
+            doc = fitz.open(pdf_path)
+            total_p = len(doc)
+            for i in range(total_p):
+                txt = doc[i].get_text('text') or ''
+                pages_text.append((i + 1, txt))
+            doc.close()
+        else:
+            try:
+                import pdfplumber
+                with pdfplumber.open(pdf_path) as pdf:
+                    total_p = len(pdf.pages)
+                    for i, pg in enumerate(pdf.pages):
+                        txt = pg.extract_text(x_tolerance=3, y_tolerance=3) or ''
+                        pages_text.append((i + 1, txt))
+            except Exception:
+                failed.append(os.path.basename(pdf_path))
+                continue
+
+        total_chars = sum(len(t) for _, t in pages_text)
+        if total_chars < 50:
+            scanned_note.append(os.path.basename(pdf_path))
+            continue
+
+        for pg_no, raw in pages_text:
+            if len(raw.strip()) < 20:
+                continue
+            norm = normalize(raw)
+            for m in pattern.finditer(norm):
+                file_matches.append({
+                    'file':    os.path.basename(pdf_path),
+                    'path':    pdf_path,
+                    'page':    pg_no,
+                    'pages':   total_p,
+                    'match':   m.group(0),
+                    'context': get_ctx(norm, m.start(), m.end(), ctx_chars),
+                })
+                if len(file_matches) >= max_per_file:
+                    break
+            if len(file_matches) >= max_per_file:
+                break
+
+        if file_matches:
+            all_matches.extend(file_matches)
+
+    except Exception as e:
+        failed.append(os.path.basename(pdf_path))
+
+print(json.dumps({
+    'matches':       all_matches,
+    'total_matches': len(all_matches),
+    'searched':      searched,
+    'failed':        failed[:20],
+    'scanned':       scanned_note[:20],
+    'pdf_list':      [os.path.basename(p) for p in pdfs[:50]],
+}))
+`;
+
+  return runPythonScript(
+    script,
+    [directory, query, maxResultsPerFile, maxFiles, recursive ? 'true' : 'false', contextChars],
+    600000  // 10 min — many PDFs can take time
+  );
 }
 
 function shellExec(cmd, timeout = 60000) {
@@ -488,15 +678,15 @@ const OfficeTools = [
       const resolved = resolvePath(filePath);
       const result = await searchPDF(resolved, query, { maxResults });
       if (result.error) throw new Error(result.error);
-      const { matches, total_pages } = result;
+      const { matches, total_pages, match_count } = result;
       if (!matches || matches.length === 0) {
         return `[PDF Search] No matches for "${query}" in ${path.basename(resolved)} (${total_pages} pages).`;
       }
       const lines = [
-        `[PDF Search: "${query}" — ${matches.length} match(es) across ${total_pages} pages — ${path.basename(resolved)}]\n`,
+        `[PDF Search: "${query}" — ${match_count} match(es) across ${total_pages} pages — ${path.basename(resolved)}]\n`,
       ];
       for (const m of matches) {
-        lines.push(`--- Page ${m.page} (line ${m.line_num}) ---`);
+        lines.push(`--- Page ${m.page} ---`);
         lines.push(m.context);
         lines.push('');
       }
@@ -543,6 +733,49 @@ const OfficeTools = [
 
       const { askAboutPDF: _ask } = require('../llm');
       return await _ask(resolved, question, { fallbackText: truncated });
+    },
+  },
+
+  {
+    name: 'office_search_pdfs',
+    category: 'office',
+    description: 'Search for a term or phrase across ALL PDF files in a directory (recursive by default). Runs in one Python process — much faster than calling office_pdf_search once per file. Use this when the user wants to find which PDF(s) contain a specific term, or search across a collection of documents. Returns matching context, page numbers, and file names.',
+    params: ['directory', 'query', 'maxResultsPerFile', 'maxFiles', 'recursive'],
+    permissionLevel: 'safe',
+    async execute({ directory, query, maxResultsPerFile = 10, maxFiles = 200, recursive = true }) {
+      if (!directory) throw new Error('directory is required');
+      if (!query)     throw new Error('query is required');
+      const resolved = resolvePath(directory);
+      const result = await searchAcrossPDFs(resolved, query, { maxResultsPerFile, maxFiles, recursive });
+      if (result.error) throw new Error(result.error);
+      const { matches, total_matches, searched, failed, scanned, pdf_list } = result;
+
+      const header = [
+        `[PDF Batch Search: "${query}"]`,
+        `  PDFs searched: ${searched} | Matches: ${total_matches}` +
+        (failed?.length  ? ` | Failed: ${failed.length}`  : '') +
+        (scanned?.length ? ` | Scanned/image-only: ${scanned.length}` : ''),
+        '',
+      ];
+
+      if (!matches || matches.length === 0) {
+        return [...header, `No matches found for "${query}" across ${searched} PDF(s).`].join('\n');
+      }
+
+      const lines = [...header];
+      let lastFile = null;
+      for (const m of matches) {
+        if (m.file !== lastFile) {
+          lines.push(`\n### ${m.file}`);
+          lastFile = m.file;
+        }
+        lines.push(`  Page ${m.page}/${m.pages}: ${m.context}`);
+      }
+
+      if (failed?.length)  lines.push(`\n[Failed to read: ${failed.join(', ')}]`);
+      if (scanned?.length) lines.push(`[Image-only (no text): ${scanned.join(', ')}]`);
+
+      return lines.join('\n');
     },
   },
 

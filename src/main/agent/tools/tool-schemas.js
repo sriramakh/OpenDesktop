@@ -719,6 +719,36 @@ ALWAYS prefer this tool over manually reading + summarizing large PDFs.`,
     required: ['path', 'question'],
   },
 
+  office_search_pdfs: {
+    description: `Search for a term or phrase across ALL PDFs in a directory in a single operation.
+Use this instead of calling office_pdf_search once per file — it's dramatically faster and searches across hundreds of PDFs at once.
+Returns every match with file name, page number, and surrounding context.
+Perfect for: "find which PDFs mention X", "search my research folder for a specific term", or "which reports discuss topic Y".`,
+    properties: {
+      directory: {
+        type: 'string',
+        description: 'Absolute path to the directory containing PDF files. Will search recursively by default.',
+      },
+      query: {
+        type: 'string',
+        description: 'The term, phrase, or keyword to search for (case-insensitive). Cross-line phrases are handled correctly.',
+      },
+      maxResultsPerFile: {
+        type: 'number',
+        description: 'Maximum matches to return per PDF file. Default: 10.',
+      },
+      maxFiles: {
+        type: 'number',
+        description: 'Maximum number of PDF files to scan. Default: 200.',
+      },
+      recursive: {
+        type: 'boolean',
+        description: 'Whether to search subdirectories recursively. Default: true.',
+      },
+    },
+    required: ['directory', 'query'],
+  },
+
   office_read_docx: {
     description: 'Read a Word document (.docx) and extract its text content. Set format="html" for structured output with headings and lists.',
     properties: {
