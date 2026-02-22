@@ -1,77 +1,123 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
-  // Agent
+  // ── Agent ──────────────────────────────────────────────────────────────────
   sendMessage: (message, persona) =>
     ipcRenderer.invoke('agent:send-message', { message, persona }),
-  cancelTask: () => ipcRenderer.invoke('agent:cancel'),
+  cancelTask: () =>
+    ipcRenderer.invoke('agent:cancel'),
   approvalResponse: (requestId, approved, note) =>
     ipcRenderer.invoke('agent:approval-response', { requestId, approved, note }),
+  newSession: () =>
+    ipcRenderer.invoke('agent:new-session'),
 
-  // Streaming events from agent
-  onAgentStream: (callback) => {
-    const handler = (_event, data) => callback(data);
-    ipcRenderer.on('agent:stream', handler);
-    return () => ipcRenderer.removeListener('agent:stream', handler);
+  // ── Streaming / event callbacks ────────────────────────────────────────────
+
+  // Streaming text token from LLM
+  onAgentToken: (cb) => {
+    const handler = (_e, d) => cb(d);
+    ipcRenderer.on('agent:token', handler);
+    return () => ipcRenderer.removeListener('agent:token', handler);
   },
-  onAgentToolCall: (callback) => {
-    const handler = (_event, data) => callback(data);
-    ipcRenderer.on('agent:tool-call', handler);
-    return () => ipcRenderer.removeListener('agent:tool-call', handler);
+
+  // Tool calls about to be executed (array)
+  onAgentToolCalls: (cb) => {
+    const handler = (_e, d) => cb(d);
+    ipcRenderer.on('agent:tool-calls', handler);
+    return () => ipcRenderer.removeListener('agent:tool-calls', handler);
   },
-  onAgentStepUpdate: (callback) => {
-    const handler = (_event, data) => callback(data);
+
+  // Single tool starting execution
+  onAgentToolStart: (cb) => {
+    const handler = (_e, d) => cb(d);
+    ipcRenderer.on('agent:tool-start', handler);
+    return () => ipcRenderer.removeListener('agent:tool-start', handler);
+  },
+
+  // Single tool finished execution
+  onAgentToolEnd: (cb) => {
+    const handler = (_e, d) => cb(d);
+    ipcRenderer.on('agent:tool-end', handler);
+    return () => ipcRenderer.removeListener('agent:tool-end', handler);
+  },
+
+  // Batch of tool results returned to the LLM
+  onAgentToolResults: (cb) => {
+    const handler = (_e, d) => cb(d);
+    ipcRenderer.on('agent:tool-results', handler);
+    return () => ipcRenderer.removeListener('agent:tool-results', handler);
+  },
+
+  // LLM is thinking (new turn starting)
+  onAgentThinking: (cb) => {
+    const handler = (_e, d) => cb(d);
+    ipcRenderer.on('agent:thinking', handler);
+    return () => ipcRenderer.removeListener('agent:thinking', handler);
+  },
+
+  // Step-level phase updates (context, running, etc.)
+  onAgentStepUpdate: (cb) => {
+    const handler = (_e, d) => cb(d);
     ipcRenderer.on('agent:step-update', handler);
     return () => ipcRenderer.removeListener('agent:step-update', handler);
   },
-  onApprovalRequest: (callback) => {
-    const handler = (_event, data) => callback(data);
+
+  // Approval required
+  onApprovalRequest: (cb) => {
+    const handler = (_e, d) => cb(d);
     ipcRenderer.on('agent:approval-request', handler);
     return () => ipcRenderer.removeListener('agent:approval-request', handler);
   },
-  onAgentError: (callback) => {
-    const handler = (_event, data) => callback(data);
+
+  // Error
+  onAgentError: (cb) => {
+    const handler = (_e, d) => cb(d);
     ipcRenderer.on('agent:error', handler);
     return () => ipcRenderer.removeListener('agent:error', handler);
   },
-  onAgentComplete: (callback) => {
-    const handler = (_event, data) => callback(data);
+
+  // Task complete
+  onAgentComplete: (cb) => {
+    const handler = (_e, d) => cb(d);
     ipcRenderer.on('agent:complete', handler);
     return () => ipcRenderer.removeListener('agent:complete', handler);
   },
 
-  // Memory
+  // Legacy: keep for backward compat with any remaining listeners
+  onAgentStream: (cb) => {
+    const handler = (_e, d) => cb(d);
+    ipcRenderer.on('agent:stream', handler);
+    return () => ipcRenderer.removeListener('agent:stream', handler);
+  },
+
+  // ── Memory ─────────────────────────────────────────────────────────────────
   searchMemory: (query, limit) =>
     ipcRenderer.invoke('memory:search', { query, limit }),
   getHistory: (limit) =>
     ipcRenderer.invoke('memory:get-history', { limit }),
 
-  // Context
+  // ── Context ────────────────────────────────────────────────────────────────
   getActiveContext: () => ipcRenderer.invoke('context:get-active'),
 
-  // Settings
-  getSettings: () => ipcRenderer.invoke('settings:get'),
+  // ── Settings ───────────────────────────────────────────────────────────────
+  getSettings:    ()         => ipcRenderer.invoke('settings:get'),
   updateSettings: (settings) => ipcRenderer.invoke('settings:update', settings),
 
-  // Tools
+  // ── Tools ──────────────────────────────────────────────────────────────────
   listTools: () => ipcRenderer.invoke('tools:list'),
 
-  // Model catalog & Ollama discovery
-  getModelCatalog: () => ipcRenderer.invoke('models:catalog'),
-  listOllamaModels: (endpoint) =>
-    ipcRenderer.invoke('models:ollama-list', { endpoint }),
+  // ── Models ─────────────────────────────────────────────────────────────────
+  getModelCatalog:   ()         => ipcRenderer.invoke('models:catalog'),
+  listOllamaModels:  (endpoint) => ipcRenderer.invoke('models:ollama-list', { endpoint }),
 
-  // Encrypted API key management
-  setApiKey: (provider, apiKey) =>
-    ipcRenderer.invoke('keys:set', { provider, apiKey }),
-  removeApiKey: (provider) =>
-    ipcRenderer.invoke('keys:remove', { provider }),
-  listApiKeys: () => ipcRenderer.invoke('keys:list'),
-  hasApiKey: (provider) =>
-    ipcRenderer.invoke('keys:has', { provider }),
+  // ── API Keys ───────────────────────────────────────────────────────────────
+  setApiKey:    (provider, apiKey) => ipcRenderer.invoke('keys:set',    { provider, apiKey }),
+  removeApiKey: (provider)         => ipcRenderer.invoke('keys:remove', { provider }),
+  listApiKeys:  ()                 => ipcRenderer.invoke('keys:list'),
+  hasApiKey:    (provider)         => ipcRenderer.invoke('keys:has',    { provider }),
 
-  // Window
+  // ── Window ─────────────────────────────────────────────────────────────────
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
-  close: () => ipcRenderer.send('window:close'),
+  close:    () => ipcRenderer.send('window:close'),
 });

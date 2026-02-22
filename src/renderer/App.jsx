@@ -1,171 +1,246 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import TitleBar from './components/TitleBar';
-import Sidebar from './components/Sidebar';
-import ChatPanel from './components/ChatPanel';
-import ContextPanel from './components/ContextPanel';
+import TitleBar       from './components/TitleBar';
+import Sidebar        from './components/Sidebar';
+import ChatPanel      from './components/ChatPanel';
+import ContextPanel   from './components/ContextPanel';
 import ApprovalDialog from './components/ApprovalDialog';
-import SettingsModal from './components/SettingsModal';
+import SettingsModal  from './components/SettingsModal';
 
 const api = window.api;
 
-export default function App() {
-  const [messages, setMessages] = useState([]);
-  const [activePersona, setActivePersona] = useState('auto');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [currentSteps, setCurrentSteps] = useState(null);
-  const [approvalRequest, setApprovalRequest] = useState(null);
-  const [contextData, setContextData] = useState(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showContext, setShowContext] = useState(true);
-  const [history, setHistory] = useState([]);
-  const [tools, setTools] = useState([]);
+// Unique ID helper
+const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  // Load initial data
+export default function App() {
+  const [messages,       setMessages]       = useState([]);
+  const [activePersona,  setActivePersona]  = useState('auto');
+  const [isProcessing,   setIsProcessing]   = useState(false);
+  const [phaseLabel,     setPhaseLabel]     = useState('');
+  const [approvalRequest, setApprovalRequest] = useState(null);
+  const [contextData,    setContextData]    = useState(null);
+  const [showSettings,   setShowSettings]   = useState(false);
+  const [showContext,    setShowContext]     = useState(true);
+  const [history,        setHistory]        = useState([]);
+  const [tools,          setTools]          = useState([]);
+
+  // activeTaskId — the ID of the currently running task (for event correlation)
+  const activeTaskIdRef = useRef(null);
+
+  // ── Initial data load ───────────────────────────────────────────────────────
   useEffect(() => {
     api?.listTools().then(setTools).catch(console.error);
     api?.getHistory(20).then(setHistory).catch(console.error);
     api?.getActiveContext().then(setContextData).catch(console.error);
 
-    // Refresh context periodically
     const interval = setInterval(() => {
       api?.getActiveContext().then(setContextData).catch(() => {});
-    }, 10000);
-
+    }, 10_000);
     return () => clearInterval(interval);
   }, []);
 
-  // Agent event listeners
+  // ── Agent event listeners ───────────────────────────────────────────────────
   useEffect(() => {
     if (!api) return;
 
+    // Helper to patch the last assistant message
+    const patchLastAssistant = (taskId, patcher) => {
+      setMessages((prev) => {
+        const idx = prev.findLastIndex(
+          (m) => m.role === 'assistant' && m.taskId === taskId
+        );
+        if (idx === -1) return prev;
+        const updated = [...prev];
+        updated[idx] = patcher(updated[idx]);
+        return updated;
+      });
+    };
+
     const cleanups = [
-      api.onAgentStream((data) => {
-        if (data.type === 'step-result') {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === 'assistant' && last.taskId === data.taskId) {
-              return [
-                ...prev.slice(0, -1),
-                {
-                  ...last,
-                  stepResults: [...(last.stepResults || []), data],
-                },
-              ];
-            }
-            return prev;
-          });
+
+      // LLM is starting a new reasoning turn
+      api.onAgentThinking(({ taskId, turn }) => {
+        patchLastAssistant(taskId, (m) => ({
+          ...m,
+          phase: 'thinking',
+          turn,
+          streamText: m.streamText || '',
+        }));
+      }),
+
+      // Streaming text token
+      api.onAgentToken(({ taskId, token }) => {
+        patchLastAssistant(taskId, (m) => ({
+          ...m,
+          phase: 'streaming',
+          streamText: (m.streamText || '') + token,
+        }));
+      }),
+
+      // Tool calls announced (before execution)
+      api.onAgentToolCalls(({ taskId, turn, calls }) => {
+        patchLastAssistant(taskId, (m) => ({
+          ...m,
+          phase: 'tool-calls',
+          activeCalls: calls.map((c) => ({
+            ...c,
+            status: 'pending',
+            id: c.id || uid(),
+          })),
+        }));
+      }),
+
+      // A single tool started
+      api.onAgentToolStart(({ taskId, id, name, input }) => {
+        patchLastAssistant(taskId, (m) => ({
+          ...m,
+          activeCalls: (m.activeCalls || []).map((c) =>
+            c.id === id || c.name === name
+              ? { ...c, status: 'running' }
+              : c
+          ),
+        }));
+        setPhaseLabel(`Running ${name}...`);
+      }),
+
+      // A single tool finished
+      api.onAgentToolEnd(({ taskId, id, name, success, error, outputPreview }) => {
+        patchLastAssistant(taskId, (m) => ({
+          ...m,
+          activeCalls: (m.activeCalls || []).map((c) =>
+            c.id === id || c.name === name
+              ? { ...c, status: success ? 'done' : 'error', error, outputPreview }
+              : c
+          ),
+        }));
+      }),
+
+      // Batch of tool results returned (a "turn" completed)
+      api.onAgentToolResults(({ taskId, turn, results }) => {
+        patchLastAssistant(taskId, (m) => {
+          const completedTools = results.map((r) => ({
+            id:      r.id,
+            name:    r.name,
+            success: !r.error,
+            content: r.content,
+            error:   r.error,
+          }));
+          return {
+            ...m,
+            phase: 'tool-results',
+            toolHistory: [...(m.toolHistory || []), ...completedTools],
+            activeCalls: [],
+          };
+        });
+      }),
+
+      // Phase updates (context-gathering, etc.)
+      api.onAgentStepUpdate(({ taskId, phase, message: msg }) => {
+        setPhaseLabel(msg || phase || '');
+        if (taskId) {
+          patchLastAssistant(taskId, (m) => ({ ...m, phase }));
         }
       }),
 
-      api.onAgentStepUpdate((data) => {
-        setCurrentSteps(data);
-      }),
+      // Approval request
+      api.onApprovalRequest((data) => setApprovalRequest(data)),
 
-      api.onApprovalRequest((data) => {
-        setApprovalRequest(data);
-      }),
-
-      api.onAgentError((data) => {
+      // Error
+      api.onAgentError(({ taskId, error }) => {
         setIsProcessing(false);
-        setCurrentSteps(null);
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'error',
-            content: data.error,
-            taskId: data.taskId,
-            timestamp: Date.now(),
-          },
-        ]);
-      }),
-
-      api.onAgentComplete((data) => {
-        setIsProcessing(false);
-        setCurrentSteps(null);
+        setPhaseLabel('');
         setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === 'assistant' && last.taskId === data.taskId) {
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...last,
-                content: data.summary,
-                steps: data.steps,
-                status: data.status,
-                completed: true,
-              },
-            ];
+          // Replace the placeholder if it exists
+          const filtered = prev.filter((m) => !(m.role === 'assistant' && m.taskId === taskId && !m.completed));
+          return [
+            ...filtered,
+            { role: 'error', content: error, taskId, timestamp: Date.now() },
+          ];
+        });
+      }),
+
+      // Task complete
+      api.onAgentComplete(({ taskId, status, summary, steps }) => {
+        setIsProcessing(false);
+        setPhaseLabel('');
+        setMessages((prev) => {
+          const idx = prev.findLastIndex((m) => m.role === 'assistant' && m.taskId === taskId);
+          if (idx !== -1) {
+            const updated = [...prev];
+            updated[idx] = {
+              ...updated[idx],
+              content:    summary,
+              streamText: '',
+              steps:      steps || [],
+              status,
+              completed:  true,
+              phase:      'complete',
+            };
+            return updated;
           }
           return [
             ...prev,
             {
-              role: 'assistant',
-              content: data.summary,
-              steps: data.steps,
-              status: data.status,
-              taskId: data.taskId,
-              timestamp: Date.now(),
-              completed: true,
+              role:       'assistant',
+              content:    summary,
+              steps:      steps || [],
+              status,
+              taskId,
+              timestamp:  Date.now(),
+              completed:  true,
+              phase:      'complete',
             },
           ];
         });
-        // Refresh history
-        api.getHistory(20).then(setHistory).catch(() => {});
+        api?.getHistory(20).then(setHistory).catch(() => {});
       }),
     ];
 
-    return () => cleanups.forEach((cleanup) => cleanup());
+    return () => cleanups.forEach((c) => c());
   }, []);
 
+  // ── Send a message ───────────────────────────────────────────────────────────
   const handleSend = useCallback(
     async (message) => {
       if (!message.trim() || isProcessing) return;
 
-      const userMsg = {
-        role: 'user',
-        content: message.trim(),
-        timestamp: Date.now(),
+      const taskId = uid();
+      activeTaskIdRef.current = taskId;
+
+      const userMsg = { role: 'user', content: message.trim(), timestamp: Date.now() };
+
+      const placeholderMsg = {
+        role:       'assistant',
+        content:    '',
+        streamText: '',
+        taskId,
+        timestamp:  Date.now(),
+        completed:  false,
+        phase:      'context',
+        activeCalls: [],
+        toolHistory: [],
+        steps:      [],
       };
 
-      setMessages((prev) => [...prev, userMsg]);
+      setMessages((prev) => [...prev, userMsg, placeholderMsg]);
       setIsProcessing(true);
-
-      // Add a placeholder assistant message
-      const placeholderTaskId = `pending_${Date.now()}`;
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: '',
-          taskId: placeholderTaskId,
-          timestamp: Date.now(),
-          completed: false,
-          stepResults: [],
-        },
-      ]);
+      setPhaseLabel('Gathering context...');
 
       try {
         const result = await api.sendMessage(message.trim(), activePersona);
         if (result?.error) {
-          setMessages((prev) => [
-            ...prev.filter((m) => m.taskId !== placeholderTaskId),
-            {
-              role: 'error',
-              content: result.error,
-              timestamp: Date.now(),
-            },
-          ]);
           setIsProcessing(false);
+          setPhaseLabel('');
+          setMessages((prev) => [
+            ...prev.filter((m) => !(m.role === 'assistant' && m.taskId === taskId && !m.completed)),
+            { role: 'error', content: result.error, timestamp: Date.now() },
+          ]);
         }
       } catch (err) {
         setIsProcessing(false);
+        setPhaseLabel('');
         setMessages((prev) => [
-          ...prev.filter((m) => m.taskId !== placeholderTaskId),
-          {
-            role: 'error',
-            content: err.message,
-            timestamp: Date.now(),
-          },
+          ...prev.filter((m) => !(m.role === 'assistant' && m.taskId === taskId && !m.completed)),
+          { role: 'error', content: err.message, timestamp: Date.now() },
         ]);
       }
     },
@@ -175,12 +250,17 @@ export default function App() {
   const handleCancel = useCallback(() => {
     api?.cancelTask();
     setIsProcessing(false);
-    setCurrentSteps(null);
+    setPhaseLabel('');
   }, []);
 
   const handleApproval = useCallback((requestId, approved, note) => {
     api?.approvalResponse(requestId, approved, note);
     setApprovalRequest(null);
+  }, []);
+
+  const handleNewSession = useCallback(() => {
+    api?.newSession();
+    setMessages([]);
   }, []);
 
   return (
@@ -195,12 +275,13 @@ export default function App() {
           tools={tools}
           showContext={showContext}
           onToggleContext={() => setShowContext(!showContext)}
+          onNewSession={handleNewSession}
         />
 
         <ChatPanel
           messages={messages}
           isProcessing={isProcessing}
-          currentSteps={currentSteps}
+          phaseLabel={phaseLabel}
           onSend={handleSend}
           onCancel={handleCancel}
           activePersona={activePersona}
@@ -213,13 +294,11 @@ export default function App() {
         <ApprovalDialog
           request={approvalRequest}
           onApprove={(note) => handleApproval(approvalRequest.requestId, true, note)}
-          onDeny={(note) => handleApproval(approvalRequest.requestId, false, note)}
+          onDeny={(note)    => handleApproval(approvalRequest.requestId, false, note)}
         />
       )}
 
-      {showSettings && (
-        <SettingsModal onClose={() => setShowSettings(false)} />
-      )}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

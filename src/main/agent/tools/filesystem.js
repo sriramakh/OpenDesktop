@@ -4,6 +4,49 @@ const path = require('path');
 const { glob } = require('glob');
 const { exec } = require('child_process');
 
+// Extension → category mapping for fs_organize
+const EXT_CATEGORIES = {
+  // Images
+  '.jpg': 'Images', '.jpeg': 'Images', '.png': 'Images', '.gif': 'Images',
+  '.bmp': 'Images', '.svg': 'Images', '.webp': 'Images', '.heic': 'Images',
+  '.heif': 'Images', '.tiff': 'Images', '.tif': 'Images', '.ico': 'Images',
+  '.raw': 'Images', '.cr2': 'Images', '.nef': 'Images', '.arw': 'Images',
+  // Videos
+  '.mp4': 'Videos', '.mov': 'Videos', '.avi': 'Videos', '.mkv': 'Videos',
+  '.wmv': 'Videos', '.flv': 'Videos', '.webm': 'Videos', '.m4v': 'Videos',
+  '.3gp': 'Videos', '.ts': 'Videos', '.m2ts': 'Videos', '.mts': 'Videos',
+  // Audio
+  '.mp3': 'Audio', '.wav': 'Audio', '.flac': 'Audio', '.aac': 'Audio',
+  '.ogg': 'Audio', '.m4a': 'Audio', '.wma': 'Audio', '.aiff': 'Audio',
+  '.alac': 'Audio', '.opus': 'Audio',
+  // Documents
+  '.pdf': 'Documents', '.doc': 'Documents', '.docx': 'Documents',
+  '.odt': 'Documents', '.rtf': 'Documents', '.pages': 'Documents',
+  '.txt': 'Documents', '.md': 'Documents', '.rst': 'Documents',
+  // Spreadsheets
+  '.xls': 'Spreadsheets', '.xlsx': 'Spreadsheets', '.ods': 'Spreadsheets',
+  '.csv': 'Spreadsheets', '.numbers': 'Spreadsheets', '.tsv': 'Spreadsheets',
+  // Presentations
+  '.ppt': 'Presentations', '.pptx': 'Presentations', '.odp': 'Presentations',
+  '.key': 'Presentations',
+  // Code
+  '.js': 'Code', '.ts': 'Code', '.py': 'Code', '.java': 'Code',
+  '.c': 'Code', '.cpp': 'Code', '.cs': 'Code', '.go': 'Code',
+  '.rs': 'Code', '.rb': 'Code', '.php': 'Code', '.swift': 'Code',
+  '.kt': 'Code', '.sh': 'Code', '.bash': 'Code', '.zsh': 'Code',
+  '.html': 'Code', '.css': 'Code', '.json': 'Code', '.xml': 'Code',
+  '.yaml': 'Code', '.yml': 'Code', '.toml': 'Code', '.sql': 'Code',
+  // Archives
+  '.zip': 'Archives', '.tar': 'Archives', '.gz': 'Archives', '.bz2': 'Archives',
+  '.7z': 'Archives', '.rar': 'Archives', '.xz': 'Archives', '.tgz': 'Archives',
+  // Applications / DMG
+  '.app': 'Applications', '.dmg': 'Applications', '.pkg': 'Applications',
+  '.exe': 'Applications', '.msi': 'Applications', '.deb': 'Applications',
+  '.rpm': 'Applications',
+  // Fonts
+  '.ttf': 'Fonts', '.otf': 'Fonts', '.woff': 'Fonts', '.woff2': 'Fonts',
+};
+
 // Binary file extensions that need special extraction
 const BINARY_EXTENSIONS = {
   '.pdf': 'pdf',
@@ -33,129 +76,133 @@ function shellExec(cmd, timeout = 30000) {
 
 /**
  * Extract readable text from binary document files.
- * Tries multiple strategies in order of preference.
+ * Uses native Node.js libraries first, then falls back to shell commands.
  */
 async function extractBinaryContent(filePath, ext) {
   const platform = process.platform;
   const strategies = [];
 
-  // macOS textutil handles doc, docx, rtf, odt, pages, etc.
-  if (platform === 'darwin' && ['.doc', '.docx', '.rtf', '.odt', '.pages'].includes(ext)) {
-    strategies.push(async () => {
-      return await shellExec(`textutil -convert txt -stdout "${filePath}"`);
-    });
-  }
-
-  // PDF extraction
+  // ── PDF ──────────────────────────────────────────────────────────────────────
   if (ext === '.pdf') {
-    // Try pdftotext (poppler)
+    // Strategy 1: pdf-parse (native Node.js, no external deps)
+    strategies.push(async () => {
+      const pdfParse = require('pdf-parse');
+      const data = await fsp.readFile(filePath);
+      const result = await pdfParse(data, { max: 30 }); // max 30 pages
+      if (!result.text || result.text.trim().length < 10) throw new Error('Empty PDF text');
+      return `[PDF: ${result.numpages} pages]\n\n${result.text}`;
+    });
+
+    // Strategy 2: pdftotext (poppler CLI)
     strategies.push(async () => {
       return await shellExec(`pdftotext "${filePath}" -`);
     });
-    // Fallback: macOS mdimport metadata
+
+    // Strategy 3: macOS qlmanage (Quick Look)
     if (platform === 'darwin') {
       strategies.push(async () => {
-        return await shellExec(`mdimport -d2 "${filePath}" 2>&1 | head -500`);
-      });
-    }
-    // Fallback: python
-    strategies.push(async () => {
-      const pyScript = `
-import sys
-try:
-    import PyPDF2
-    reader = PyPDF2.PdfReader("${filePath.replace(/"/g, '\\"')}")
-    for page in reader.pages[:20]:
-        text = page.extract_text()
-        if text: print(text)
-except ImportError:
-    try:
-        import fitz
-        doc = fitz.open("${filePath.replace(/"/g, '\\"')}")
-        for page in doc[:20]:
-            print(page.get_text())
-    except ImportError:
-        print("[ERROR] No PDF library available. Install: pip install PyPDF2 or pip install PyMuPDF")
-`;
-      return await shellExec(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`);
-    });
-  }
-
-  // Excel extraction
-  if (['.xlsx', '.xls'].includes(ext)) {
-    // macOS: try using python with openpyxl
-    strategies.push(async () => {
-      const pyScript = ext === '.xlsx' ? `
-import sys
-try:
-    import openpyxl
-    wb = openpyxl.load_workbook("${filePath.replace(/"/g, '\\"')}", read_only=True, data_only=True)
-    for sheet_name in wb.sheetnames[:5]:
-        ws = wb[sheet_name]
-        print(f"\\n=== Sheet: {sheet_name} ===")
-        for i, row in enumerate(ws.iter_rows(values_only=True)):
-            if i > 100: print("... (truncated)"); break
-            print("\\t".join(str(c) if c is not None else "" for c in row))
-except ImportError:
-    print("[ERROR] openpyxl not available. Install: pip install openpyxl")
-` : `
-import sys
-try:
-    import xlrd
-    wb = xlrd.open_workbook("${filePath.replace(/"/g, '\\"')}")
-    for sheet in wb.sheets()[:5]:
-        print(f"\\n=== Sheet: {sheet.name} ===")
-        for i in range(min(sheet.nrows, 100)):
-            print("\\t".join(str(sheet.cell_value(i, j)) for j in range(sheet.ncols)))
-except ImportError:
-    print("[ERROR] xlrd not available. Install: pip install xlrd")
-`;
-      return await shellExec(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`);
-    });
-  }
-
-  // PowerPoint extraction
-  if (['.pptx', '.ppt'].includes(ext)) {
-    strategies.push(async () => {
-      const pyScript = `
-import sys
-try:
-    from pptx import Presentation
-    prs = Presentation("${filePath.replace(/"/g, '\\"')}")
-    for i, slide in enumerate(prs.slides):
-        print(f"\\n=== Slide {i+1} ===")
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                for para in shape.text_frame.paragraphs:
-                    text = para.text.strip()
-                    if text: print(text)
-except ImportError:
-    print("[ERROR] python-pptx not available. Install: pip install python-pptx")
-`;
-      return await shellExec(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`);
-    });
-    // macOS textutil fallback for .ppt
-    if (platform === 'darwin' && ext === '.ppt') {
-      strategies.push(async () => {
-        return await shellExec(`textutil -convert txt -stdout "${filePath}"`);
+        return await shellExec(`qlmanage -p "${filePath}" 2>/dev/null; mdimport -d3 "${filePath}" 2>&1 | grep kMDItem | head -100`);
       });
     }
   }
 
-  // macOS Numbers
-  if (ext === '.numbers' && platform === 'darwin') {
+  // ── DOCX / DOC / RTF / ODT / Pages ──────────────────────────────────────────
+  if (['.docx', '.odt'].includes(ext)) {
+    // Strategy 1: mammoth (native Node.js for DOCX/ODT)
+    strategies.push(async () => {
+      const mammoth = require('mammoth');
+      const result = await mammoth.extractRawText({ path: filePath });
+      if (!result.value || result.value.trim().length < 5) throw new Error('Empty document');
+      return result.value;
+    });
+  }
+
+  if (platform === 'darwin' && ['.doc', '.docx', '.rtf', '.odt', '.pages'].includes(ext)) {
+    // macOS textutil (very reliable for Apple/Microsoft formats)
     strategies.push(async () => {
       return await shellExec(`textutil -convert txt -stdout "${filePath}"`);
     });
   }
 
-  // Generic fallback: strings command (extracts readable strings from any binary)
+  // ── XLSX / XLS ───────────────────────────────────────────────────────────────
+  if (['.xlsx', '.xls'].includes(ext)) {
+    // Strategy 1: SheetJS (native Node.js)
+    strategies.push(async () => {
+      const XLSX = require('xlsx');
+      const wb = XLSX.readFile(filePath, { sheetRows: 200 });
+      const lines = [];
+      for (const sheetName of wb.SheetNames.slice(0, 5)) {
+        lines.push(`\n=== Sheet: ${sheetName} ===`);
+        const ws = wb.Sheets[sheetName];
+        const csv = XLSX.utils.sheet_to_csv(ws);
+        lines.push(csv.split('\n').slice(0, 200).join('\n'));
+      }
+      const text = lines.join('\n');
+      if (text.trim().length < 5) throw new Error('Empty workbook');
+      return text;
+    });
+  }
+
+  // ── PPTX ─────────────────────────────────────────────────────────────────────
+  if (['.pptx', '.ppt'].includes(ext)) {
+    // Strategy 1: jszip — PPTX is a ZIP; parse slide XML natively
+    strategies.push(async () => {
+      const JSZip = require('jszip');
+      const data = await fsp.readFile(filePath);
+      const zip = await JSZip.loadAsync(data);
+
+      const slideFiles = Object.keys(zip.files)
+        .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+        .sort((a, b) => {
+          const na = parseInt(a.match(/\d+/)[0]);
+          const nb = parseInt(b.match(/\d+/)[0]);
+          return na - nb;
+        });
+
+      const lines = [];
+      for (let i = 0; i < slideFiles.length; i++) {
+        const xml = await zip.files[slideFiles[i]].async('text');
+        // Extract text from <a:t> tags (DrawingML text runs)
+        const textNodes = [...xml.matchAll(/<a:t[^>]*>([^<]+)<\/a:t>/g)].map((m) => m[1]);
+        const slideText = textNodes
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .join(' ');
+        if (slideText) lines.push(`\n=== Slide ${i + 1} ===\n${slideText}`);
+      }
+
+      const text = lines.join('\n');
+      if (text.trim().length < 5) throw new Error('Empty presentation');
+      return text;
+    });
+
+    // Strategy 2: macOS textutil fallback for .ppt
+    if (platform === 'darwin' && ext === '.ppt') {
+      strategies.push(async () => shellExec(`textutil -convert txt -stdout "${filePath}"`));
+    }
+  }
+
+  // ── CSV / TSV ─────────────────────────────────────────────────────────────────
+  if (['.csv', '.tsv'].includes(ext)) {
+    strategies.push(async () => {
+      const content = await fsp.readFile(filePath, 'utf-8');
+      return content.slice(0, 50000);
+    });
+  }
+
+  // ── macOS Numbers ─────────────────────────────────────────────────────────────
+  if (ext === '.numbers' && platform === 'darwin') {
+    strategies.push(async () => shellExec(`textutil -convert txt -stdout "${filePath}"`));
+  }
+
+  // ── Generic fallback ──────────────────────────────────────────────────────────
   strategies.push(async () => {
     const output = await shellExec(`strings "${filePath}" | head -500`);
     return `[Extracted raw strings from ${path.basename(filePath)}]\n${output}`;
   });
 
-  // Try each strategy in order
+  // Try each strategy in order — return first success
+  const errors = [];
   for (const strategy of strategies) {
     try {
       const result = await strategy();
@@ -163,12 +210,14 @@ except ImportError:
         return result.trim();
       }
     } catch (err) {
-      // Try next strategy
-      continue;
+      errors.push(err.message);
     }
   }
 
-  throw new Error(`Unable to extract text from ${path.basename(filePath)}. File type: ${ext}. Try installing the appropriate tools (pdftotext for PDF, python3 with openpyxl/PyPDF2/python-pptx for Office files).`);
+  throw new Error(
+    `Unable to extract text from ${path.basename(filePath)} (${ext}). ` +
+    `Attempted ${strategies.length} strategies. Last errors: ${errors.slice(-2).join('; ')}`
+  );
 }
 
 const FilesystemTools = [
@@ -590,6 +639,112 @@ const FilesystemTools = [
       }
 
       return JSON.stringify(info, null, 2);
+    },
+  },
+  {
+    name: 'fs_organize',
+    category: 'filesystem',
+    description: 'Intelligently organize files in a directory by type. Classifies files by extension, creates category folders (Images, Videos, Documents, Spreadsheets, Presentations, Code, Archives, Audio, Applications, Fonts), and moves ONLY files (never existing subdirectories) to their destinations. Use dryRun=true first to preview. Use customRules to override default categories.',
+    params: ['path', 'dryRun', 'customRules', 'othersFolder'],
+    permissionLevel: 'dangerous',
+    async execute({ path: dirPath, dryRun = false, customRules, othersFolder = 'Others' }) {
+      if (!dirPath) throw new Error('path is required');
+      const resolved = resolvePath(dirPath);
+      guardPath(resolved);
+
+      const stat = await fsp.stat(resolved);
+      if (!stat.isDirectory()) throw new Error(`Not a directory: ${resolved}`);
+
+      // Merge custom rules into default categories
+      const extMap = { ...EXT_CATEGORIES };
+      if (customRules && typeof customRules === 'object') {
+        for (const [ext, category] of Object.entries(customRules)) {
+          extMap[ext.toLowerCase()] = category;
+        }
+      }
+
+      // List ONLY direct children (no recursion)
+      const entries = await fsp.readdir(resolved, { withFileTypes: true });
+
+      // Collect only FILES — skip directories entirely
+      const files = entries.filter((e) => e.isFile() && !e.name.startsWith('.'));
+
+      if (files.length === 0) {
+        return 'No files to organize (directory only contains subdirectories or is empty).';
+      }
+
+      // Classify each file
+      const plan = [];
+      for (const file of files) {
+        const ext = path.extname(file.name).toLowerCase();
+        const category = extMap[ext] || othersFolder;
+        plan.push({ name: file.name, ext, category });
+      }
+
+      // Summary
+      const categorySummary = {};
+      for (const { name, category } of plan) {
+        if (!categorySummary[category]) categorySummary[category] = [];
+        categorySummary[category].push(name);
+      }
+
+      if (dryRun) {
+        const lines = ['[DRY RUN — no files moved]\n'];
+        for (const [cat, files] of Object.entries(categorySummary)) {
+          lines.push(`${cat}/ (${files.length} files):`);
+          for (const f of files) lines.push(`  ${f}`);
+        }
+        return lines.join('\n');
+      }
+
+      // Create destination folders
+      const foldersCreated = new Set();
+      for (const category of new Set(plan.map((p) => p.category))) {
+        const destDir = path.join(resolved, category);
+        const exists = await fsp.stat(destDir).catch(() => null);
+        if (!exists) {
+          await fsp.mkdir(destDir, { recursive: true });
+          foldersCreated.add(category);
+        }
+      }
+
+      // Move files
+      const moved = [];
+      const errors = [];
+      for (const { name, category } of plan) {
+        const src = path.join(resolved, name);
+        const destDir = path.join(resolved, category);
+        const dst = path.join(destDir, name);
+
+        // Skip if source is one of the category folders we just created
+        if (foldersCreated.has(name) || name === othersFolder) continue;
+
+        try {
+          // Rename first (fast, same-volume)
+          await fsp.rename(src, dst).catch(async () => {
+            // Cross-device fallback
+            await fsp.copyFile(src, dst);
+            await fsp.unlink(src);
+          });
+          moved.push(`${name} → ${category}/`);
+        } catch (err) {
+          errors.push(`${name}: ${err.message}`);
+        }
+      }
+
+      const lines = [`Organized ${moved.length} files in ${resolved}:`];
+      for (const [cat, catFiles] of Object.entries(categorySummary)) {
+        const movedCount = moved.filter((m) => m.includes(`→ ${cat}/`)).length;
+        if (movedCount > 0) lines.push(`  ${cat}/ — ${movedCount} files`);
+      }
+      if (foldersCreated.size > 0) {
+        lines.push(`\nFolders created: ${[...foldersCreated].join(', ')}`);
+      }
+      if (errors.length > 0) {
+        lines.push(`\nErrors (${errors.length}):\n${errors.join('\n')}`);
+      }
+
+      return lines.join('\n');
     },
   },
 ];

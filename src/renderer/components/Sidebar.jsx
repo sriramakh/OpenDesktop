@@ -9,16 +9,15 @@ import {
   PanelRight,
   ChevronDown,
   ChevronRight,
-  Clock,
   CheckCircle2,
   XCircle,
   Folder,
   Globe,
   Terminal,
   Monitor as MonitorIcon,
-  MessageSquare,
   Code,
   Sparkles,
+  Plus,
 } from 'lucide-react';
 
 const PERSONA_ICONS = {
@@ -46,7 +45,7 @@ const TOOL_CATEGORY_ICONS = {
   llm: Code,
 };
 
-export default function Sidebar({ activePersona, onPersonaChange, history, tools, showContext, onToggleContext }) {
+export default function Sidebar({ activePersona, onPersonaChange, history, tools, showContext, onToggleContext, onNewSession }) {
   const [expandedSection, setExpandedSection] = useState('persona');
 
   const toggleSection = (section) => {
@@ -166,7 +165,7 @@ export default function Sidebar({ activePersona, onPersonaChange, history, tools
                       {item.query}
                     </p>
                     <p className="text-[10px] text-zinc-600 mt-0.5">
-                      {item.steps || 0} steps ·{' '}
+                      {item.turns ? `${item.turns} turns · ` : ''}{item.persona ? `${item.persona} · ` : ''}
                       {item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : ''}
                     </p>
                   </div>
@@ -177,8 +176,18 @@ export default function Sidebar({ activePersona, onPersonaChange, history, tools
         )}
       </div>
 
-      {/* Toggle context panel */}
-      <div className="p-2 border-t border-surface-3">
+      {/* Bottom controls */}
+      <div className="p-2 border-t border-surface-3 space-y-1">
+        {onNewSession && (
+          <button
+            onClick={onNewSession}
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs text-muted hover:bg-surface-2 hover:text-zinc-300 transition-colors"
+            title="Start a new conversation"
+          >
+            <Plus size={13} />
+            <span>New Session</span>
+          </button>
+        )}
         <button
           onClick={onToggleContext}
           className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors ${

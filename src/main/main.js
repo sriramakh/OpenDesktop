@@ -1,15 +1,15 @@
 const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('path');
-const { AgentCore } = require('./agent/core');
-const { ToolRegistry } = require('./agent/tools/registry');
-const { MemorySystem } = require('./agent/memory');
+const { AgentCore }        = require('./agent/core');
+const { ToolRegistry }     = require('./agent/tools/registry');
+const { MemorySystem }     = require('./agent/memory');
 const { PermissionManager } = require('./agent/permissions');
 const { ContextAwareness } = require('./agent/context');
-const { KeyStore } = require('./agent/keystore');
+const { KeyStore }         = require('./agent/keystore');
 const { getModelCatalog, listOllamaModels } = require('./agent/llm');
 
 let mainWindow = null;
-let agentCore = null;
+let agentCore  = null;
 
 const isDev = !app.isPackaged;
 
@@ -17,9 +17,9 @@ function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
   mainWindow = new BrowserWindow({
-    width: Math.min(1400, width),
+    width:  Math.min(1400, width),
     height: Math.min(900, height),
-    minWidth: 800,
+    minWidth:  800,
     minHeight: 600,
     frame: false,
     titleBarStyle: 'hiddenInset',
@@ -41,18 +41,16 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../../dist/renderer/index.html'));
   }
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  mainWindow.on('closed', () => { mainWindow = null; });
 }
 
 async function initializeAgent() {
   const userDataPath = app.getPath('userData');
-  const memory = new MemorySystem(userDataPath);
-  const permissions = new PermissionManager();
-  const context = new ContextAwareness();
+  const memory       = new MemorySystem(userDataPath);
+  const permissions  = new PermissionManager();
+  const context      = new ContextAwareness();
   const toolRegistry = new ToolRegistry(permissions);
-  const keyStore = new KeyStore(userDataPath);
+  const keyStore     = new KeyStore(userDataPath);
 
   agentCore = new AgentCore({
     memory,
@@ -74,7 +72,8 @@ async function initializeAgent() {
 }
 
 function setupIPC() {
-  // Agent message handling
+  // ── Agent ──────────────────────────────────────────────────────────────────
+
   ipcMain.handle('agent:send-message', async (_event, { message, persona }) => {
     try {
       return await agentCore.handleUserMessage(message, persona);
@@ -84,19 +83,23 @@ function setupIPC() {
     }
   });
 
-  // Cancel current task
   ipcMain.handle('agent:cancel', async () => {
     agentCore.cancel();
     return { ok: true };
   });
 
-  // Approval response from user
   ipcMain.handle('agent:approval-response', async (_event, { requestId, approved, note }) => {
     agentCore.resolveApproval(requestId, approved, note);
     return { ok: true };
   });
 
-  // Memory queries
+  // New session (clear conversation history)
+  ipcMain.handle('agent:new-session', async () => {
+    return agentCore.newSession();
+  });
+
+  // ── Memory ─────────────────────────────────────────────────────────────────
+
   ipcMain.handle('memory:search', async (_event, { query, limit }) => {
     return agentCore.memory.search(query, limit);
   });
@@ -105,12 +108,14 @@ function setupIPC() {
     return agentCore.memory.getRecentHistory(limit);
   });
 
-  // Context
+  // ── Context ────────────────────────────────────────────────────────────────
+
   ipcMain.handle('context:get-active', async () => {
     return agentCore.context.getActiveContext();
   });
 
-  // Settings
+  // ── Settings ───────────────────────────────────────────────────────────────
+
   ipcMain.handle('settings:get', async () => {
     return agentCore.getSettings();
   });
@@ -119,22 +124,24 @@ function setupIPC() {
     return agentCore.updateSettings(settings);
   });
 
-  // Tool list
+  // ── Tools ──────────────────────────────────────────────────────────────────
+
   ipcMain.handle('tools:list', async () => {
     return agentCore.toolRegistry.listTools();
   });
 
-  // Model catalog
+  // ── Models ─────────────────────────────────────────────────────────────────
+
   ipcMain.handle('models:catalog', async () => {
     return getModelCatalog();
   });
 
-  // Ollama local model discovery
   ipcMain.handle('models:ollama-list', async (_event, { endpoint } = {}) => {
     return listOllamaModels(endpoint);
   });
 
-  // Encrypted API key management
+  // ── API Keys (encrypted) ───────────────────────────────────────────────────
+
   ipcMain.handle('keys:set', async (_event, { provider, apiKey }) => {
     await agentCore.keyStore.setKey(provider, apiKey);
     return { ok: true };
@@ -153,14 +160,11 @@ function setupIPC() {
     return agentCore.keyStore.hasKey(provider);
   });
 
-  // Window controls
+  // ── Window controls ────────────────────────────────────────────────────────
+
   ipcMain.on('window:minimize', () => mainWindow?.minimize());
   ipcMain.on('window:maximize', () => {
-    if (mainWindow?.isMaximized()) {
-      mainWindow.unmaximize();
-    } else {
-      mainWindow?.maximize();
-    }
+    mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow?.maximize();
   });
   ipcMain.on('window:close', () => mainWindow?.close());
 }

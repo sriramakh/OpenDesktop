@@ -1,40 +1,74 @@
+/**
+ * AgentCore — Orchestrator for the OpenDesktop agent.
+ *
+ * Responsibilities:
+ *  - Maintain session state (current conversation, task tracking)
+ *  - Build the system prompt with live OS context
+ *  - Start the AgentLoop for each user message
+ *  - Handle approvals, cancellation, and settings
+ *  - Persist conversation to memory
+ *
+ * The actual reasoning + tool execution happens in AgentLoop (loop.js).
+ */
+
+const os = require('os');
 const { v4: uuidv4 } = require('uuid');
+const { AgentLoop } = require('./loop');
 const { PersonaManager } = require('./personas');
-const { TaskPlanner } = require('./planner');
-const { configure: configureLLM, setKeyStore: setLLMKeyStore, callLLM } = require('./llm');
+const {
+  configure: configureLLM,
+  setKeyStore: setLLMKeyStore,
+  callLLM,
+  callWithTools,
+  getCurrentProvider,
+} = require('./llm');
 
 class AgentCore {
   constructor({ memory, permissions, context, toolRegistry, keyStore, emit }) {
-    this.memory = memory;
+    this.memory      = memory;
     this.permissions = permissions;
-    this.context = context;
+    this.context     = context;
     this.toolRegistry = toolRegistry;
-    this.keyStore = keyStore;
-    this.emit = emit;
+    this.keyStore    = keyStore;
+    this.emit        = emit;
 
     this.personaManager = new PersonaManager();
-    this.planner = new TaskPlanner();
 
-    this.currentTask = null;
-    this.cancelled = false;
+    this.currentTaskId  = null;
+    this.cancelled      = false;
     this.pendingApprovals = new Map();
 
+    // Current session conversation (persisted across messages within a session)
+    this.sessionMessages = [];
+    this.sessionId = uuidv4();
+
     this.settings = {
-      llmProvider: 'ollama',
-      llmModel: 'llama3',
-      maxSteps: 20,
+      llmProvider:     'ollama',
+      llmModel:        'llama3',
+      maxTurns:        50,
       autoApproveRead: true,
       autoApproveWrite: false,
-      defaultPersona: 'auto',
-      temperature: 0.7,
-      maxTokens: 4096,
+      defaultPersona:  'auto',
+      temperature:     0.7,
+      maxTokens:       8096,
     };
 
-    // Wire keystore into LLM module
     if (keyStore) {
       setLLMKeyStore(keyStore);
     }
+
+    // Create the agent loop (stateless — reused for every message)
+    this._loop = new AgentLoop({
+      toolRegistry,
+      llm: { callWithTools, getCurrentProvider },
+      permissions,
+      emit: this._emitWrapper.bind(this),
+    });
   }
+
+  // ---------------------------------------------------------------------------
+  // Settings
+  // ---------------------------------------------------------------------------
 
   getSettings() {
     return { ...this.settings };
@@ -42,364 +76,298 @@ class AgentCore {
 
   updateSettings(newSettings) {
     this.settings = { ...this.settings, ...newSettings };
-    // Sync LLM module config
     configureLLM({
-      provider: this.settings.llmProvider,
-      model: this.settings.llmModel,
+      provider:    this.settings.llmProvider,
+      model:       this.settings.llmModel,
       temperature: this.settings.temperature,
-      maxTokens: this.settings.maxTokens,
+      maxTokens:   this.settings.maxTokens,
     });
     return this.settings;
   }
 
+  // ---------------------------------------------------------------------------
+  // Cancellation
+  // ---------------------------------------------------------------------------
+
   cancel() {
     this.cancelled = true;
-    if (this.currentTask) {
-      this.currentTask.status = 'cancelled';
+    this._loop.cancel();
+    if (this.currentTaskId) {
       this.emit('agent:complete', {
-        taskId: this.currentTask.id,
+        taskId: this.currentTaskId,
         status: 'cancelled',
+        summary: 'Task cancelled by user.',
+        steps: [],
       });
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Approval flow
+  // ---------------------------------------------------------------------------
 
   resolveApproval(requestId, approved, note) {
     const resolver = this.pendingApprovals.get(requestId);
     if (resolver) {
-      resolver({ approved, note });
+      resolver({ approved: !!approved, note });
       this.pendingApprovals.delete(requestId);
     }
   }
 
-  async requestApproval(action) {
-    const requestId = uuidv4();
-    this.emit('agent:approval-request', {
-      requestId,
-      action,
-      timestamp: Date.now(),
-    });
+  // ---------------------------------------------------------------------------
+  // Emit wrapper — intercepts approval requests to wire them through core
+  // ---------------------------------------------------------------------------
 
-    return new Promise((resolve) => {
-      this.pendingApprovals.set(requestId, resolve);
-      // Auto-timeout after 5 minutes
-      setTimeout(() => {
-        if (this.pendingApprovals.has(requestId)) {
-          this.pendingApprovals.delete(requestId);
-          resolve({ approved: false, note: 'Approval timed out' });
-        }
-      }, 300000);
-    });
+  _emitWrapper(channel, data) {
+    if (channel === 'agent:approval-request') {
+      // Wire the resolver into core's pendingApprovals map
+      // (The loop already set up the promise; we just need to forward the event)
+      this.pendingApprovals = this._loop.pendingApprovals;
+    }
+    if (this.emit) this.emit(channel, data);
   }
+
+  // ---------------------------------------------------------------------------
+  // Main entry point: handle a user message
+  // ---------------------------------------------------------------------------
 
   async handleUserMessage(message, personaName) {
     this.cancelled = false;
     const taskId = uuidv4();
+    this.currentTaskId = taskId;
 
-    // Auto-select persona if not explicitly chosen or set to 'auto'
-    let resolvedPersonaName = personaName || this.settings.defaultPersona;
-    if (resolvedPersonaName === 'auto' || !personaName) {
-      resolvedPersonaName = await this.autoSelectPersona(message);
+    // Resolve persona
+    let resolvedPersona = personaName || this.settings.defaultPersona;
+    if (resolvedPersona === 'auto' || !personaName) {
+      resolvedPersona = await this._autoSelectPersona(message);
     }
-    const persona = this.personaManager.get(resolvedPersonaName);
+    const persona = this.personaManager.get(resolvedPersona);
 
-    this.currentTask = {
-      id: taskId,
-      message,
-      persona: persona.name,
-      status: 'running',
-      steps: [],
-      startTime: Date.now(),
-    };
+    // Add user message to session
+    this.sessionMessages.push({ role: 'user', content: message });
 
     // Store in short-term memory
-    this.memory.addToShortTerm({
-      role: 'user',
-      content: message,
-      timestamp: Date.now(),
-    });
+    this.memory.addToShortTerm({ role: 'user', content: message, timestamp: Date.now() });
 
     try {
-      // Phase 1: Gather context
-      this.emit('agent:step-update', {
+      // Gather live OS context
+      this.emit('agent:step-update', { taskId, phase: 'context', message: 'Gathering context...' });
+      const activeContext = await this.context.getActiveContext().catch(() => ({}));
+      const relevantMemories = await this.memory.search(message, 3);
+
+      // Build the system prompt
+      const systemPrompt = this._buildSystemPrompt(persona, activeContext, relevantMemories);
+
+      this.emit('agent:step-update', { taskId, phase: 'running', message: 'Agent is working...' });
+
+      // Build messages for this turn: past session + current user message already added above
+      // (session messages already contains the latest user message)
+      const messagesForLoop = this.sessionMessages.slice(); // shallow copy
+
+      // Run the ReAct loop
+      const result = await this._loop.run({
+        messages: messagesForLoop,
+        systemPrompt,
         taskId,
-        phase: 'context',
-        message: 'Gathering context...',
+        options: {
+          maxTurns: this.settings.maxTurns,
+        },
+        pendingApprovals: this.pendingApprovals,
       });
 
-      const activeContext = await this.context.getActiveContext();
-      const relevantMemories = await this.memory.search(message, 5);
+      const summary = result.text || '(No response)';
 
-      // Phase 2: Plan — decompose intent into steps
-      this.emit('agent:step-update', {
-        taskId,
-        phase: 'planning',
-        message: 'Decomposing task...',
-      });
+      // Update session with the full conversation returned from the loop
+      // The loop returns the expanded conversation including tool calls/results
+      this.sessionMessages = result.messages;
 
-      // Build conversation history for context continuity
-      const conversationHistory = this.memory.getShortTermContext()
-        .slice(-10)
-        .map((e) => `[${e.role}]: ${(e.content || '').slice(0, 300)}`)
-        .join('\n');
-
-      const plan = await this.planner.decompose(message, {
-        persona,
-        context: activeContext,
-        memories: relevantMemories,
-        availableTools: this.toolRegistry.listTools(),
-        conversationHistory,
-      });
-
-      this.emit('agent:step-update', {
-        taskId,
-        phase: 'plan-ready',
-        plan,
-      });
-
-      // Phase 3: Execute each step with result chaining
-      const results = [];
-      const stepResults = {}; // Map step id → result for dependency resolution
-
-      for (let i = 0; i < plan.steps.length && i < this.settings.maxSteps; i++) {
-        if (this.cancelled) break;
-
-        let step = plan.steps[i];
-
-        // Resolve params for steps that depend on prior outputs
-        if (step.dependsOn && step.dependsOn.length > 0) {
-          const depOutputs = {};
-          for (const depId of step.dependsOn) {
-            if (stepResults[depId]) depOutputs[depId] = stepResults[depId];
-          }
-          if (Object.keys(depOutputs).length > 0) {
-            step = await this.resolveStepParams(step, depOutputs, persona);
-          }
-        }
-
-        this.emit('agent:step-update', {
-          taskId,
-          phase: 'executing',
-          stepIndex: i,
-          totalSteps: plan.steps.length,
-          step,
-        });
-
-        const result = await this.executeStep(step, taskId);
-        results.push(result);
-
-        // Store result indexed by step id for dependency chaining
-        const stepId = step.id || (i + 1);
-        stepResults[stepId] = {
-          description: step.description,
-          tool: step.tool,
-          success: result.success || false,
-          data: result.data ? String(result.data).slice(0, 4000) : null,
-          error: result.error || null,
-        };
-
-        this.currentTask.steps.push({
-          ...step,
-          result,
-          completedAt: Date.now(),
-        });
-
-        // Stream partial results
-        this.emit('agent:stream', {
-          taskId,
-          type: 'step-result',
-          stepIndex: i,
-          result,
-        });
-
-        // Check if we need to re-plan based on result
-        if (result.error && i < plan.steps.length - 1) {
-          this.emit('agent:step-update', {
-            taskId,
-            phase: 'replanning',
-            message: `Step failed: ${result.error}. Adjusting plan...`,
-          });
-
-          const revisedPlan = await this.planner.revise(plan, i, result, {
-            persona,
-            context: activeContext,
-            priorResults: stepResults,
-          });
-
-          if (revisedPlan) {
-            plan.steps = revisedPlan.steps;
-          }
-        }
-      }
-
-      // Phase 4: Synthesize final response
-      this.emit('agent:step-update', {
-        taskId,
-        phase: 'synthesizing',
-        message: 'Preparing response...',
-      });
-
-      const summary = await this.planner.synthesize(message, results, persona, stepResults);
-
-      // Store in memory
-      this.memory.addToShortTerm({
-        role: 'assistant',
-        content: summary,
-        taskId,
-        timestamp: Date.now(),
-      });
-
+      // Persist to memory
+      this.memory.addToShortTerm({ role: 'assistant', content: summary, taskId, timestamp: Date.now() });
       await this.memory.addToLongTerm({
         type: 'task',
         query: message,
         summary,
-        steps: this.currentTask.steps.length,
-        status: this.cancelled ? 'cancelled' : 'completed',
+        persona: persona.name,
+        status: result.cancelled ? 'cancelled' : 'completed',
+        turns: result.turns,
+        sessionId: this.sessionId,
         timestamp: Date.now(),
       });
 
-      this.currentTask.status = this.cancelled ? 'cancelled' : 'completed';
-
       this.emit('agent:complete', {
         taskId,
-        status: this.currentTask.status,
+        status: result.cancelled ? 'cancelled' : 'completed',
         summary,
-        steps: this.currentTask.steps,
+        steps: this._extractStepsFromMessages(result.messages),
       });
 
-      return { taskId, summary, steps: this.currentTask.steps };
+      return { taskId, summary };
     } catch (err) {
-      this.currentTask.status = 'error';
-      this.emit('agent:error', {
-        taskId,
-        error: err.message,
-      });
+      console.error('[AgentCore] Error:', err);
+      this.emit('agent:error', { taskId, error: err.message });
       return { taskId, error: err.message };
     }
   }
 
-  /**
-   * Auto-select the best persona based on user message intent.
-   * Uses fast keyword heuristics first, falls back to LLM classification.
-   */
-  async autoSelectPersona(message) {
+  // ---------------------------------------------------------------------------
+  // System prompt builder
+  // ---------------------------------------------------------------------------
+
+  _buildSystemPrompt(persona, context, memories) {
+    const home = os.homedir();
+    const user = os.userInfo().username;
+    const platform = process.platform === 'darwin' ? 'macOS' : process.platform;
+    const now = new Date().toLocaleString();
+
+    const memorySection = memories.length
+      ? `\n## Relevant past interactions\n${memories.map((m) => `- ${m.summary || m.query}`).join('\n')}`
+      : '';
+
+    const runningApps = context.runningApps?.length
+      ? `\n- Running apps: ${context.runningApps.slice(0, 10).join(', ')}`
+      : '';
+
+    return `${persona.systemPrompt}
+
+You are OpenDesktop, an autonomous AI agent running natively on ${user}'s ${platform} computer.
+
+## Your capabilities
+You have real tools that execute directly on this machine:
+- **Filesystem**: fs_read, fs_write, fs_edit, fs_list, fs_search, fs_move, fs_delete, fs_mkdir, fs_tree, fs_info, fs_organize
+- **Office Documents**: office_read_pdf, office_read_docx, office_write_docx, office_read_xlsx, office_write_xlsx, office_read_pptx, office_read_csv, office_write_csv
+- **System**: system_exec (shell commands), system_info, system_processes, system_clipboard_read/write, system_notify
+- **Applications**: app_open, app_find, app_list, app_focus, app_quit, app_screenshot
+- **Browser/UI**: browser_navigate, browser_click, browser_type, browser_key
+- **Web**: web_search, web_fetch, web_fetch_json, web_download
+- **AI**: llm_query, llm_summarize, llm_extract, llm_code
+
+## Critical operating principles
+1. **Be autonomous and decisive** — Don't ask for permission for safe read operations. Use tools first.
+2. **Explore before acting** — When a path or app name is uncertain, search or list first. Never assume.
+3. **Chain tools intelligently** — Use the output of one tool as the exact input to the next.
+4. **Parallel when independent** — Call multiple tools in the same turn when they don't depend on each other.
+5. **Recover from errors** — If a tool fails, try an alternative approach. Adapt to what you discover.
+6. **Be complete** — If asked to organize files, actually move them. Don't stop at listing them.
+7. **Summarize clearly** — After completing a task, give a clear, concise summary of what was done.
+
+## Tool guidelines
+- File paths: always use absolute paths. Desktop = \`${home}/Desktop\`, Downloads = \`${home}/Downloads\`
+- Directory exploration: prefer \`fs_list\` or \`fs_tree\` over \`system_exec ls\`
+- Finding files: use \`fs_search\` with glob patterns (e.g. \`**/*.pdf\`, \`*.jpg\`)
+- **Organizing directories**: ALWAYS use \`fs_organize\` — it is atomic and correctly classifies ONLY files (not subdirectories) to avoid moving already-organized folders into "others". Never manually move folder-by-folder.
+- **Reading documents**: Use \`office_read_pdf\`, \`office_read_docx\`, \`office_read_xlsx\`, \`office_read_pptx\`, \`office_read_csv\` for rich content extraction with formatting. Fall back to \`fs_read\` for plain text files.
+- **Excel work**: Use \`office_read_xlsx\` to understand sheets, then \`office_write_xlsx\` to set values/formulas. Chain these for complex operations.
+- Shell commands not covered by specific tools: use \`system_exec\`
+- Opening apps: just use the app name (e.g. "Safari", "Finder", "VS Code")
+- Web research: \`web_search\` first, then \`web_fetch\` specific pages
+- For code generation: use \`llm_code\` then \`fs_write\` to save it
+
+## Current environment
+- Platform: ${platform} (${os.arch()})
+- User: ${user}
+- Home: ${home}
+- Active app: ${context.activeApp || 'unknown'}
+- Time: ${now}${runningApps}${memorySection}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Auto-persona selection (multi-signal scoring)
+  // ---------------------------------------------------------------------------
+
+  async _autoSelectPersona(message) {
     const msg = message.toLowerCase();
 
-    // Fast heuristic classification
-    const executorPatterns = /\b(create|make|move|copy|delete|rename|write|save|mkdir|install|run|execute|open|launch|start|organize|sort|clean|set up|init)\b/;
-    const researcherPatterns = /\b(search|find info|research|look up|what is|who is|explain|compare|difference between|how does|why does|tell me about|summarize|documentation)\b/;
-    const plannerPatterns = /\b(plan|design|architect|break down|strategy|roadmap|outline|step.?by.?step|how (should|can|do) (i|we)|approach|workflow)\b/;
+    // Strong and weak signal patterns for each persona
+    const signals = {
+      executor: {
+        strong: /\b(move|copy|delete|rename|mkdir|install|execute|run|launch|organize|sort|download|upload|chmod|compress|extract|deploy|push|pull|git|npm|pip|brew|format|convert|resize|merge|split|zip|unzip|backup|sync|transfer|automate|schedule|trigger|import|export)\b/,
+        weak:   /\b(create|make|write|save|open|start|build|generate|setup|init|do|apply|fix|clean|update|add|remove|change|edit|modify)\b/,
+      },
+      researcher: {
+        strong: /\b(search|look up|find info|research|what is|who is|explain|compare|how does|why does|tell me about|summarize|documentation|describe|difference between|history of|overview|analyze|review)\b/,
+        weak:   /\b(what|why|how|when|where|which|who|learn|understand|read|find out|check)\b/,
+      },
+      planner: {
+        strong: /\b(plan|design|architect|break down|strategy|roadmap|outline|step.?by.?step|how should i|approach|workflow|think through|advise|recommend|help me decide|best way to|consider|structure|organize my|prioritize|blueprint|proposal|spec)\b/,
+        weak:   /\b(should|could|would|might|maybe|option|approach|idea|suggestion|advice|framework|methodology)\b/,
+      },
+    };
 
-    if (executorPatterns.test(msg)) return 'executor';
-    if (researcherPatterns.test(msg)) return 'researcher';
-    if (plannerPatterns.test(msg)) return 'planner';
+    const scores = { executor: 0, researcher: 0, planner: 0 };
 
-    // LLM fallback for ambiguous messages
+    for (const [persona, { strong, weak }] of Object.entries(signals)) {
+      const strongMatches = (msg.match(new RegExp(strong.source, 'g')) || []).length;
+      const weakMatches   = (msg.match(new RegExp(weak.source,   'g')) || []).length;
+      scores[persona] = strongMatches * 3 + weakMatches;
+    }
+
+    const maxScore = Math.max(...Object.values(scores));
+    const winner   = Object.entries(scores).sort(([, a], [, b]) => b - a)[0][0];
+
+    // If there's a clear winner with strong signal, trust it
+    if (maxScore >= 3) {
+      return winner;
+    }
+
+    // Ambiguous — ask LLM for classification
     try {
-      const classifyPrompt = `Classify this user request into exactly one category. Reply with ONLY the category name, nothing else.
-
-Categories:
-- executor: User wants to DO something (create files, move files, open apps, run commands, organize folders)
-- researcher: User wants to KNOW something (search, lookup, explain, compare, summarize)
-- planner: User wants to PLAN something (design, architect, strategize, outline steps)
-
-User request: "${message.slice(0, 200)}"
-
-Category:`;
-      const result = await callLLM('You are a classifier. Reply with a single word.', classifyPrompt);
+      const result = await callLLM(
+        'You are a task classifier. Classify user requests into one of three categories:\n- executor: the user wants to DO something (create, move, run, install, open, organize files, automate)\n- researcher: the user wants to KNOW something (search, explain, summarize, find information, describe)\n- planner: the user wants to PLAN something (design, strategize, break down steps, decide approach)\n\nReply with ONLY one lowercase word: executor, researcher, or planner.',
+        `User request: "${message.slice(0, 400)}"\n\nClassification (one word):`
+      );
       const cleaned = result.trim().toLowerCase().replace(/[^a-z]/g, '');
       if (['executor', 'researcher', 'planner'].includes(cleaned)) return cleaned;
     } catch (err) {
-      console.error('[AgentCore] autoSelectPersona LLM error:', err.message);
+      console.error('[AgentCore] autoSelectPersona error:', err.message);
     }
 
-    return 'executor'; // Default to executor for action-oriented tasks
+    // If no strong signal but some score, go with the highest
+    if (maxScore > 0) return winner;
+
+    // True fallback: executor (most common general-purpose task)
+    return 'executor';
   }
 
-  /**
-   * Use the LLM to resolve step params at runtime using outputs from prior steps.
-   */
-  async resolveStepParams(step, priorResults, persona) {
-    const priorSummary = Object.entries(priorResults)
-      .map(([id, r]) => `Step ${id} (${r.tool}): ${r.success ? 'SUCCESS' : 'FAILED'}\nOutput: ${(r.data || r.error || 'no output').slice(0, 1500)}`)
-      .join('\n---\n');
+  // ---------------------------------------------------------------------------
+  // Start a new conversation session
+  // ---------------------------------------------------------------------------
 
-    const prompt = `You are resolving parameters for the next step in a task plan.
-
-Prior step results:
-${priorSummary}
-
-Next step to execute:
-- Tool: ${step.tool}
-- Description: ${step.description}
-- Current params: ${JSON.stringify(step.params)}
-
-Based on the prior results, fill in or correct the params for this step. Return ONLY a JSON object with the resolved params, nothing else. If the current params are already correct, return them unchanged.`;
-
-    try {
-      const response = await callLLM(persona.systemPrompt, prompt);
-      const parsed = this.planner.parseJSON(response);
-      if (parsed && typeof parsed === 'object') {
-        return { ...step, params: { ...step.params, ...parsed } };
-      }
-    } catch (err) {
-      console.error('[AgentCore] resolveStepParams error:', err.message);
-    }
-    return step;
+  newSession() {
+    this.sessionMessages = [];
+    this.sessionId = uuidv4();
+    return this.sessionId;
   }
 
-  async executeStep(step, taskId) {
-    const tool = this.toolRegistry.get(step.tool);
-    if (!tool) {
-      return { error: `Unknown tool: ${step.tool}` };
-    }
+  getSessionMessages() {
+    return [...this.sessionMessages];
+  }
 
-    // Check permissions
-    const permLevel = this.permissions.classify(step.tool, step.params);
+  // ---------------------------------------------------------------------------
+  // Extract a simplified step list from the loop's message history (for UI)
+  // ---------------------------------------------------------------------------
 
-    if (permLevel === 'dangerous') {
-      const { approved, note } = await this.requestApproval({
-        tool: step.tool,
-        params: step.params,
-        description: step.description,
-        riskLevel: 'dangerous',
-      });
+  _extractStepsFromMessages(messages) {
+    const steps = [];
+    let stepIdx = 0;
 
-      if (!approved) {
-        return {
-          skipped: true,
-          reason: note || 'User denied approval',
-        };
-      }
-    } else if (permLevel === 'sensitive' && !this.settings.autoApproveWrite) {
-      const { approved, note } = await this.requestApproval({
-        tool: step.tool,
-        params: step.params,
-        description: step.description,
-        riskLevel: 'sensitive',
-      });
+    for (const msg of messages) {
+      if (msg.role !== 'assistant') continue;
+      const content = Array.isArray(msg.content) ? msg.content : [];
 
-      if (!approved) {
-        return {
-          skipped: true,
-          reason: note || 'User denied approval',
-        };
+      for (const block of content) {
+        if (block.type === 'tool_use') {
+          steps.push({
+            id: stepIdx++,
+            tool: block.name,
+            description: `${block.name}(${JSON.stringify(block.input).slice(0, 80)})`,
+            params: block.input,
+            result: { success: true }, // Tool results tracked separately
+          });
+        }
       }
     }
 
-    // Execute
-    this.emit('agent:tool-call', {
-      taskId,
-      tool: step.tool,
-      params: step.params,
-      timestamp: Date.now(),
-    });
-
-    try {
-      const result = await tool.execute(step.params);
-      return { success: true, data: result };
-    } catch (err) {
-      return { error: err.message };
-    }
+    return steps;
   }
 }
 
