@@ -75,21 +75,29 @@ Uses fast keyword heuristics with weighted scoring (strong signals × 3 + weak s
 
 ### Multi-Provider LLM Support
 
-Choose from **5 providers** and **40+ models** directly in the Settings UI:
+Choose from **10 providers** and **80+ models** directly in the Settings UI:
 
 | Provider | Models | Key Required |
 |----------|--------|:------------:|
-| **Ollama (Local)** | Llama 3/3.1/3.2/3.3, Mistral, Mixtral, CodeLlama, DeepSeek Coder V2, Qwen 2.5, Phi-3, Gemma 2, Command R + any locally installed model | No |
-| **OpenAI** | GPT-4o, GPT-4o Mini, GPT-4 Turbo, GPT-4, GPT-3.5 Turbo, o1, o1 Mini, o3 Mini | Yes |
-| **Anthropic (Claude)** | Claude Opus 4.5, Claude Sonnet 4.5, Claude Sonnet 4, Claude 3.7 Sonnet, Claude 3.5 Sonnet v2, Claude 3.5 Haiku, Claude 3 Opus, Claude 3 Haiku | Yes |
-| **Google (Gemini)** | Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 2.0 Flash, Gemini 1.5 Pro, Gemini 1.5 Flash | Yes |
+| **Ollama (Local)** | Llama 3/3.1/3.2/3.3, Qwen 2.5/3, Mistral, Mixtral, Mistral Nemo, CodeLlama, DeepSeek Coder V2/R1, Phi-3/4, Gemma 2/3, Command R, Llama 3.2 Vision + any locally installed model | No |
+| **OpenAI** | GPT-4.1, GPT-4.1 Mini, GPT-4.1 Nano, GPT-4o, GPT-4o Mini, o3, o3 Mini, o4 Mini, o1, o1 Mini, GPT-4 Turbo, GPT-3.5 Turbo | Yes |
+| **Anthropic (Claude)** | Claude Opus 4.5, Sonnet 4.5, Sonnet 4, 3.7 Sonnet, 3.5 Sonnet v2, 3.5 Haiku, 3 Opus, 3 Haiku | Yes |
+| **Google (Gemini)** | Gemini 2.5 Pro, 2.5 Flash, 2.0 Flash, 2.0 Flash Lite, 1.5 Pro, 1.5 Flash | Yes |
 | **DeepSeek** | DeepSeek V3, DeepSeek R1 | Yes |
+| **xAI (Grok)** | Grok 3, Grok 3 Fast, Grok 3 Mini, Grok 3 Mini Fast, Grok 2 | Yes |
+| **Mistral AI** | Mistral Large, Medium, Small, Codestral, Mistral Nemo, Pixtral Large | Yes |
+| **Groq** | Llama 3.3 70B, Llama 3.1 8B, Llama 3.2 90B Vision, Mixtral 8x7B, Gemma 2 9B, Qwen QwQ 32B, DeepSeek R1 70B | Yes |
+| **Together AI** | Llama 3.3 70B Turbo, Llama 3.1 405B Turbo, Qwen 2.5 72B Turbo, Mixtral 8x22B, DeepSeek R1/V3 | Yes |
+| **Perplexity** | Sonar Pro, Sonar, Sonar Reasoning Pro, Sonar Reasoning, Sonar Deep Research | Yes |
 
 **LLM module features:**
 - **Two calling modes**: `callLLM()` for simple text-in/text-out, `callWithTools()` for native agentic tool calling
 - **Unified internal message format** — provider adapters convert to/from Anthropic, OpenAI, Gemini, and Ollama formats
 - **Native tool calling** for all providers (not prompt-based JSON extraction)
-- **Provider card selector** with one-click switching
+- **OpenAI-compatible routing** — new providers (xAI, Mistral, Groq, Together, Perplexity) auto-route via `openaiCompatible` flag
+- **Reasoning model support** — o1/o3/o4 models use `max_completion_tokens` and omit unsupported params
+- **Context overflow protection** — conversation truncation + tool result trimming to stay within model limits
+- **Provider card selector** with one-click switching (10 providers)
 - **Model dropdown** with context window size display
 - **Ollama auto-discovery** — detects locally installed models via `ollama list`
 - **Encrypted API key storage** — AES-256-GCM encryption with machine-specific key derivation (PBKDF2, 100K iterations)

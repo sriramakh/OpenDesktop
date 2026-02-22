@@ -65,13 +65,19 @@ class ToolRegistry {
         return this._toAnthropicTools(tools);
       case 'openai':
       case 'deepseek':
+      case 'xai':
+      case 'mistral':
+      case 'groq':
+      case 'together':
+      case 'perplexity':
         return this._toOpenAITools(tools);
       case 'ollama':
         return this._toOllamaTools(tools);
       case 'google':
         return this._toGeminiTools(tools);
       default:
-        return this._toAnthropicTools(tools);
+        // Default to OpenAI format for unknown OpenAI-compatible providers
+        return this._toOpenAITools(tools);
     }
   }
 

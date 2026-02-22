@@ -30,21 +30,26 @@ const MODEL_CATALOG = {
     requiresKey: false,
     endpoint: 'http://127.0.0.1:11434',
     models: [
+      { id: 'llama3.3',           name: 'Llama 3.3 70B',       ctx: 131072 },
+      { id: 'llama3.2',           name: 'Llama 3.2 3B',        ctx: 131072 },
       { id: 'llama3.1',           name: 'Llama 3.1 8B',        ctx: 131072 },
       { id: 'llama3.1:70b',       name: 'Llama 3.1 70B',       ctx: 131072 },
-      { id: 'llama3.2',           name: 'Llama 3.2 3B',        ctx: 131072 },
-      { id: 'llama3.3',           name: 'Llama 3.3 70B',       ctx: 131072 },
       { id: 'llama3',             name: 'Llama 3 8B',          ctx: 8192   },
-      { id: 'llama3:70b',         name: 'Llama 3 70B',         ctx: 8192   },
-      { id: 'mistral',            name: 'Mistral 7B',          ctx: 32768  },
-      { id: 'mixtral',            name: 'Mixtral 8x7B',        ctx: 32768  },
-      { id: 'codellama',          name: 'Code Llama 7B',       ctx: 16384  },
-      { id: 'deepseek-coder-v2',  name: 'DeepSeek Coder V2',   ctx: 131072 },
       { id: 'qwen2.5',            name: 'Qwen 2.5 7B',         ctx: 131072 },
       { id: 'qwen2.5:72b',        name: 'Qwen 2.5 72B',        ctx: 131072 },
+      { id: 'qwen3',              name: 'Qwen 3 8B',           ctx: 131072 },
+      { id: 'mistral',            name: 'Mistral 7B',          ctx: 32768  },
+      { id: 'mixtral',            name: 'Mixtral 8x7B',        ctx: 32768  },
+      { id: 'mistral-nemo',       name: 'Mistral Nemo 12B',    ctx: 131072 },
+      { id: 'codellama',          name: 'Code Llama 7B',       ctx: 16384  },
+      { id: 'deepseek-coder-v2',  name: 'DeepSeek Coder V2',   ctx: 131072 },
+      { id: 'deepseek-r1',        name: 'DeepSeek R1 7B',      ctx: 131072 },
+      { id: 'phi4',               name: 'Phi-4 14B',           ctx: 16384  },
       { id: 'phi3',               name: 'Phi-3 3.8B',          ctx: 4096   },
       { id: 'gemma2',             name: 'Gemma 2 9B',          ctx: 8192   },
+      { id: 'gemma3',             name: 'Gemma 3 12B',         ctx: 131072 },
       { id: 'command-r',          name: 'Command R 35B',       ctx: 131072 },
+      { id: 'llama3.2-vision',    name: 'Llama 3.2 Vision 11B', ctx: 131072 },
     ],
   },
   openai: {
@@ -53,14 +58,18 @@ const MODEL_CATALOG = {
     endpoint: 'https://api.openai.com',
     keyPrefix: 'sk-',
     models: [
+      { id: 'gpt-4.1',            name: 'GPT-4.1',             ctx: 1047576 },
+      { id: 'gpt-4.1-mini',       name: 'GPT-4.1 Mini',        ctx: 1047576 },
+      { id: 'gpt-4.1-nano',       name: 'GPT-4.1 Nano',        ctx: 1047576 },
       { id: 'gpt-4o',             name: 'GPT-4o',              ctx: 128000 },
       { id: 'gpt-4o-mini',        name: 'GPT-4o Mini',         ctx: 128000 },
-      { id: 'gpt-4-turbo',        name: 'GPT-4 Turbo',         ctx: 128000 },
-      { id: 'gpt-4',              name: 'GPT-4',               ctx: 8192   },
-      { id: 'gpt-3.5-turbo',      name: 'GPT-3.5 Turbo',       ctx: 16385  },
+      { id: 'o3',                 name: 'o3',                  ctx: 200000 },
+      { id: 'o3-mini',            name: 'o3 Mini',             ctx: 200000 },
+      { id: 'o4-mini',            name: 'o4 Mini',             ctx: 200000 },
       { id: 'o1',                 name: 'o1',                  ctx: 200000 },
       { id: 'o1-mini',            name: 'o1 Mini',             ctx: 128000 },
-      { id: 'o3-mini',            name: 'o3 Mini',             ctx: 200000 },
+      { id: 'gpt-4-turbo',        name: 'GPT-4 Turbo',         ctx: 128000 },
+      { id: 'gpt-3.5-turbo',      name: 'GPT-3.5 Turbo',       ctx: 16385  },
     ],
   },
   anthropic: {
@@ -88,6 +97,7 @@ const MODEL_CATALOG = {
       { id: 'gemini-2.5-pro-preview-06-05',   name: 'Gemini 2.5 Pro',        ctx: 1048576 },
       { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash',      ctx: 1048576 },
       { id: 'gemini-2.0-flash',               name: 'Gemini 2.0 Flash',      ctx: 1048576 },
+      { id: 'gemini-2.0-flash-lite',          name: 'Gemini 2.0 Flash Lite', ctx: 1048576 },
       { id: 'gemini-1.5-pro',                 name: 'Gemini 1.5 Pro',        ctx: 2097152 },
       { id: 'gemini-1.5-flash',               name: 'Gemini 1.5 Flash',      ctx: 1048576 },
     ],
@@ -100,6 +110,81 @@ const MODEL_CATALOG = {
     models: [
       { id: 'deepseek-chat',      name: 'DeepSeek V3',         ctx: 65536  },
       { id: 'deepseek-reasoner',  name: 'DeepSeek R1',         ctx: 65536  },
+    ],
+  },
+  xai: {
+    label: 'xAI (Grok)',
+    requiresKey: true,
+    endpoint: 'https://api.x.ai',
+    keyPrefix: 'xai-',
+    openaiCompatible: true,
+    models: [
+      { id: 'grok-3',             name: 'Grok 3',              ctx: 131072 },
+      { id: 'grok-3-fast',        name: 'Grok 3 Fast',         ctx: 131072 },
+      { id: 'grok-3-mini',        name: 'Grok 3 Mini',         ctx: 131072 },
+      { id: 'grok-3-mini-fast',   name: 'Grok 3 Mini Fast',    ctx: 131072 },
+      { id: 'grok-2',             name: 'Grok 2',              ctx: 131072 },
+    ],
+  },
+  mistral: {
+    label: 'Mistral AI',
+    requiresKey: true,
+    endpoint: 'https://api.mistral.ai',
+    keyPrefix: '',
+    openaiCompatible: true,
+    models: [
+      { id: 'mistral-large-latest',   name: 'Mistral Large',       ctx: 131072 },
+      { id: 'mistral-medium-latest',  name: 'Mistral Medium',      ctx: 131072 },
+      { id: 'mistral-small-latest',   name: 'Mistral Small',       ctx: 131072 },
+      { id: 'codestral-latest',       name: 'Codestral',           ctx: 262144 },
+      { id: 'open-mistral-nemo',      name: 'Mistral Nemo',        ctx: 131072 },
+      { id: 'pixtral-large-latest',   name: 'Pixtral Large',       ctx: 131072 },
+    ],
+  },
+  groq: {
+    label: 'Groq',
+    requiresKey: true,
+    endpoint: 'https://api.groq.com/openai',
+    keyPrefix: 'gsk_',
+    openaiCompatible: true,
+    models: [
+      { id: 'llama-3.3-70b-versatile',    name: 'Llama 3.3 70B',       ctx: 131072 },
+      { id: 'llama-3.1-8b-instant',       name: 'Llama 3.1 8B',        ctx: 131072 },
+      { id: 'llama-3.2-90b-vision-preview', name: 'Llama 3.2 90B Vision', ctx: 131072 },
+      { id: 'mixtral-8x7b-32768',         name: 'Mixtral 8x7B',        ctx: 32768  },
+      { id: 'gemma2-9b-it',               name: 'Gemma 2 9B',          ctx: 8192   },
+      { id: 'qwen-qwq-32b',              name: 'Qwen QwQ 32B',        ctx: 131072 },
+      { id: 'deepseek-r1-distill-llama-70b', name: 'DeepSeek R1 70B',  ctx: 131072 },
+    ],
+  },
+  together: {
+    label: 'Together AI',
+    requiresKey: true,
+    endpoint: 'https://api.together.xyz',
+    keyPrefix: '',
+    openaiCompatible: true,
+    models: [
+      { id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', name: 'Llama 3.3 70B Turbo',  ctx: 131072 },
+      { id: 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo', name: 'Llama 3.1 405B Turbo', ctx: 131072 },
+      { id: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo', name: 'Llama 3.1 70B Turbo', ctx: 131072 },
+      { id: 'Qwen/Qwen2.5-72B-Instruct-Turbo', name: 'Qwen 2.5 72B Turbo', ctx: 131072 },
+      { id: 'mistralai/Mixtral-8x22B-Instruct-v0.1', name: 'Mixtral 8x22B',  ctx: 65536  },
+      { id: 'deepseek-ai/DeepSeek-R1',        name: 'DeepSeek R1',          ctx: 65536  },
+      { id: 'deepseek-ai/DeepSeek-V3',        name: 'DeepSeek V3',          ctx: 65536  },
+    ],
+  },
+  perplexity: {
+    label: 'Perplexity',
+    requiresKey: true,
+    endpoint: 'https://api.perplexity.ai',
+    keyPrefix: 'pplx-',
+    openaiCompatible: true,
+    models: [
+      { id: 'sonar-pro',          name: 'Sonar Pro',            ctx: 200000 },
+      { id: 'sonar',              name: 'Sonar',                ctx: 128000 },
+      { id: 'sonar-reasoning-pro', name: 'Sonar Reasoning Pro', ctx: 128000 },
+      { id: 'sonar-reasoning',    name: 'Sonar Reasoning',      ctx: 128000 },
+      { id: 'sonar-deep-research', name: 'Sonar Deep Research', ctx: 128000 },
     ],
   },
 };
@@ -180,10 +265,16 @@ async function callLLM(systemPrompt, userMessage, options = {}) {
       return _anthropicSimple(endpoint, apiKey, model, systemPrompt, userMessage, temperature, maxTokens);
     case 'google':
       return _geminiSimple(endpoint, apiKey, model, systemPrompt, userMessage, temperature, maxTokens);
-    case 'deepseek':
-      return _deepSeekSimple(endpoint, apiKey, model, systemPrompt, userMessage, temperature, maxTokens);
-    default:
+    default: {
+      // All OpenAI-compatible providers (deepseek, xai, mistral, groq, together, perplexity, etc.)
+      if (catalogEntry?.openaiCompatible || provider === 'deepseek') {
+        return _openAISimple(
+          endpoint || catalogEntry?.endpoint,
+          apiKey, model, systemPrompt, userMessage, temperature, maxTokens
+        );
+      }
       throw new Error(`Unknown LLM provider: ${provider}`);
+    }
   }
 }
 
@@ -226,14 +317,16 @@ async function callWithTools(systemPrompt, messages, tools, options = {}) {
       return _ollamaWithTools(endpoint, model, systemPrompt, messages, tools, temperature, maxTokens, options);
     case 'google':
       return _geminiWithTools(endpoint, apiKey, model, systemPrompt, messages, tools, temperature, maxTokens, options);
-    case 'deepseek':
-      // DeepSeek is OpenAI-compatible
-      return _openAIWithTools(
-        endpoint || MODEL_CATALOG.deepseek.endpoint,
-        apiKey, model, systemPrompt, messages, tools, temperature, maxTokens, options
-      );
-    default:
+    default: {
+      // All OpenAI-compatible providers (deepseek, xai, mistral, groq, together, perplexity, etc.)
+      if (catalogEntry?.openaiCompatible || provider === 'deepseek') {
+        return _openAIWithTools(
+          endpoint || catalogEntry?.endpoint,
+          apiKey, model, systemPrompt, messages, tools, temperature, maxTokens, options
+        );
+      }
       throw new Error(`Unknown LLM provider for tool calling: ${provider}`);
+    }
   }
 }
 
@@ -751,24 +844,6 @@ async function _geminiSimple(endpoint, apiKey, model, systemPrompt, userMessage,
     }),
   });
   return JSON.parse(response).candidates?.[0]?.content?.parts?.[0]?.text || '';
-}
-
-async function _deepSeekSimple(endpoint, apiKey, model, systemPrompt, userMessage, temperature, maxTokens) {
-  const url = new URL('/chat/completions', endpoint || MODEL_CATALOG.deepseek.endpoint);
-  const response = await httpRequest(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userMessage },
-      ],
-      temperature,
-      max_tokens: maxTokens,
-    }),
-  });
-  return JSON.parse(response).choices?.[0]?.message?.content || '';
 }
 
 // ---------------------------------------------------------------------------

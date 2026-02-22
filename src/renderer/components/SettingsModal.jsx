@@ -24,6 +24,11 @@ import {
   CheckCircle2,
   HardDrive,
   Globe,
+  Rocket,
+  Wind,
+  Activity,
+  Layers,
+  Search,
 } from 'lucide-react';
 
 const api = window.api;
@@ -73,6 +78,51 @@ const PROVIDER_META = {
     activeBorder: 'border-violet-500/60',
     description: 'DeepSeek V3, R1 — high performance, low cost',
     docsUrl: 'https://platform.deepseek.com/api_keys',
+  },
+  xai: {
+    icon: Rocket,
+    color: 'text-rose-400',
+    bg: 'bg-rose-500/10',
+    border: 'border-rose-500/25',
+    activeBorder: 'border-rose-500/60',
+    description: 'Grok 3, Grok 2 — powerful reasoning from xAI',
+    docsUrl: 'https://console.x.ai',
+  },
+  mistral: {
+    icon: Wind,
+    color: 'text-amber-400',
+    bg: 'bg-amber-500/10',
+    border: 'border-amber-500/25',
+    activeBorder: 'border-amber-500/60',
+    description: 'Mistral Large, Codestral, Pixtral from Mistral AI',
+    docsUrl: 'https://console.mistral.ai/api-keys',
+  },
+  groq: {
+    icon: Activity,
+    color: 'text-teal-400',
+    bg: 'bg-teal-500/10',
+    border: 'border-teal-500/25',
+    activeBorder: 'border-teal-500/60',
+    description: 'Ultra-fast inference — Llama, Mixtral, Gemma on Groq LPUs',
+    docsUrl: 'https://console.groq.com/keys',
+  },
+  together: {
+    icon: Layers,
+    color: 'text-pink-400',
+    bg: 'bg-pink-500/10',
+    border: 'border-pink-500/25',
+    activeBorder: 'border-pink-500/60',
+    description: 'Llama 405B, Qwen, DeepSeek and more on Together AI',
+    docsUrl: 'https://api.together.ai/settings/api-keys',
+  },
+  perplexity: {
+    icon: Search,
+    color: 'text-cyan-400',
+    bg: 'bg-cyan-500/10',
+    border: 'border-cyan-500/25',
+    activeBorder: 'border-cyan-500/60',
+    description: 'Sonar models with built-in web search from Perplexity',
+    docsUrl: 'https://www.perplexity.ai/settings/api',
   },
 };
 
@@ -268,7 +318,7 @@ export default function SettingsModal({ onClose }) {
               {/* Provider Selector Cards */}
               <div>
                 <label className="text-xs text-zinc-400 mb-2 block">Provider</label>
-                <div className="grid grid-cols-5 gap-2">
+                <div className="grid grid-cols-5 gap-1.5 max-h-[140px] overflow-y-auto">
                   {Object.entries(PROVIDER_META).map(([key, pm]) => {
                     const Icon = pm.icon;
                     const isActive = currentProvider === key;
