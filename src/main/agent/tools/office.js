@@ -30,7 +30,7 @@ if (typeof globalThis.DOMMatrix === 'undefined') {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared PDF helpers
+// PDF helpers — pdfplumber (primary) → pdf-parse (fallback) → OCR (scanned)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Path to pdfjs-dist standard fonts — silences pdf-parse v2 warning */
@@ -44,106 +44,105 @@ function getStandardFontDataUrl() {
 }
 
 /**
- * OCR a PDF using PyMuPDF (fitz) to render pages → PNG → tesseract.
- * Handles scanned/image-based PDFs. Requires python3 with fitz + tesseract CLI.
+ * runPythonScript(scriptBody, args, timeout)
+ * Write a temp Python script, run it, return stdout as parsed JSON.
  */
-async function ocrPDF(filePath, maxPages = 15) {
-  const script = `
-import sys, os, tempfile, subprocess, json
-try:
-    import fitz
-except ImportError:
-    print(json.dumps({'error': 'PyMuPDF not installed. Run: pip install PyMuPDF'}))
-    sys.exit(0)
-
-pdf_path  = sys.argv[1]
-max_pages = int(sys.argv[2]) if len(sys.argv) > 2 else 15
-
-try:
-    doc = fitz.open(pdf_path)
-except Exception as e:
-    print(json.dumps({'error': f'Cannot open PDF: {e}'}))
-    sys.exit(0)
-
-results = []
-for i in range(min(len(doc), max_pages)):
-    page = doc[i]
-    mat  = fitz.Matrix(2.5, 2.5)  # 2.5x resolution — quality/speed balance
-    pix  = page.get_pixmap(matrix=mat, colorspace=fitz.csGRAY)
-
-    fd, img_path = tempfile.mkstemp(suffix='.png')
-    os.close(fd)
-    fd, out_base = tempfile.mkstemp(suffix='.txt')
-    os.close(fd)
-    out_base = out_base[:-4]  # tesseract appends .txt itself
-
-    try:
-        pix.save(img_path)
-        subprocess.run(
-            ['tesseract', img_path, out_base, '-l', 'eng', '--psm', '1'],
-            capture_output=True, timeout=45
-        )
-        txt_file = out_base + '.txt'
-        if os.path.exists(txt_file):
-            with open(txt_file, 'r', encoding='utf-8', errors='replace') as f:
-                text = f.read().strip()
-            os.unlink(txt_file)
-            if text:
-                results.append({'page': i + 1, 'text': text})
-    finally:
-        if os.path.exists(img_path):
-            os.unlink(img_path)
-
-total_pages = len(doc)
-doc.close()
-print(json.dumps({'pages': results, 'total': total_pages}))
-`;
-
-  const scriptPath = path.join(os.tmpdir(), `_ocr_pdf_${process.pid}.py`);
-  await fsp.writeFile(scriptPath, script, 'utf-8');
-
+async function runPythonScript(scriptBody, args = [], timeout = 180000) {
+  const scriptPath = path.join(os.tmpdir(), `_pdf_${process.pid}_${Date.now()}.py`);
+  await fsp.writeFile(scriptPath, scriptBody, 'utf-8');
   try {
+    const escapedArgs = args.map((a) => `"${String(a).replace(/"/g, '\\"')}"`).join(' ');
     const raw = await new Promise((resolve, reject) => {
-      exec(`python3 "${scriptPath}" "${filePath}" ${maxPages}`,
-        { timeout: 180000, maxBuffer: 10 * 1024 * 1024 },
+      exec(`python3 "${scriptPath}" ${escapedArgs}`,
+        { timeout, maxBuffer: 30 * 1024 * 1024 },
         (err, stdout, stderr) => {
           if (err && !stdout) reject(new Error(stderr || err.message));
-          else resolve(stdout || '');
+          else resolve(stdout || '{}');
         }
       );
     });
-
-    const result = JSON.parse(raw.trim());
-    if (result.error) throw new Error(result.error);
-
-    const pageTexts = result.pages
-      .filter((p) => p.text && p.text.trim().length > 5)
-      .map((p) => `=== Page ${p.page} ===\n${p.text}`);
-
-    if (pageTexts.length === 0) throw new Error('OCR produced no text (possibly blank pages)');
-    return `[PDF OCR: ${result.total} pages — ${path.basename(filePath)}]\n\n${pageTexts.join('\n\n')}`;
+    return JSON.parse(raw.trim());
   } finally {
     await fsp.unlink(scriptPath).catch(() => {});
   }
 }
 
 /**
- * Read PDF: try text extraction first, fall back to OCR if the PDF is scanned.
+ * extractWithPdfplumber(filePath, opts)
+ * Primary extraction: uses pdfplumber for high-quality layout-aware text + tables.
+ * Returns { total, pages: [{page, text, tables, charCount}], meta }
  */
-async function readPDF(filePath, opts = {}) {
+async function extractWithPdfplumber(filePath, opts = {}) {
+  const { startPage = 1, endPage, mode = 'full' } = opts;
+
+  const script = `
+import sys, json
+try:
+    import pdfplumber
+except ImportError:
+    print(json.dumps({'error': 'pdfplumber not installed. Run: pip install pdfplumber'}))
+    sys.exit(0)
+
+pdf_path   = sys.argv[1]
+start_page = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+end_page   = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] != '0' else None
+mode       = sys.argv[4] if len(sys.argv) > 4 else 'full'
+
+try:
+    with pdfplumber.open(pdf_path) as pdf:
+        total = len(pdf.pages)
+        end_p = end_page or total
+        pages = []
+        for i in range(start_page - 1, min(end_p, total)):
+            page = pdf.pages[i]
+            text = page.extract_text(x_tolerance=3, y_tolerance=3) or ''
+            tables = []
+            if mode != 'overview':
+                try:
+                    raw_tbls = page.extract_tables({'vertical_strategy': 'lines_strict', 'horizontal_strategy': 'lines_strict'}) or []
+                    if not raw_tbls:
+                        raw_tbls = page.extract_tables() or []
+                    for tbl in raw_tbls:
+                        if tbl:
+                            tables.append([[str(c).strip() if c else '' for c in row] for row in tbl])
+                except Exception:
+                    pass
+            pages.append({
+                'page': i + 1,
+                'text': text[:400] if mode == 'overview' else text,
+                'tables': tables,
+                'char_count': len(text),
+            })
+        meta = {}
+        try:
+            info = pdf.metadata or {}
+            meta = {k: str(v)[:200] for k, v in info.items() if v and isinstance(v, (str, int, float))}
+        except Exception:
+            pass
+        print(json.dumps({'total': total, 'pages': pages, 'meta': meta}))
+except Exception as e:
+    print(json.dumps({'error': str(e)}))
+`;
+
+  return runPythonScript(script, [filePath, startPage, endPage || 0, opts.mode || 'full']);
+}
+
+/**
+ * extractWithPdfParse(filePath, opts)
+ * Fallback: uses pdf-parse (Node.js). Less accurate but no Python required.
+ */
+async function extractWithPdfParse(filePath, opts = {}) {
   const { startPage, endPage, password } = opts;
   const { PDFParse } = require('pdf-parse');
-
   const rawData = await fsp.readFile(filePath);
   const uint8   = new Uint8Array(rawData);
 
   const parseOpts = {};
   const sfUrl = getStandardFontDataUrl();
-  if (sfUrl)   parseOpts.standardFontDataUrl = sfUrl;
+  if (sfUrl)    parseOpts.standardFontDataUrl = sfUrl;
   if (password) parseOpts.password = password;
   if (endPage)  parseOpts.max = endPage;
 
-  // Suppress pdfjs-dist v5 font warning (non-critical; text extraction still works)
   const _origWarn = console.warn;
   console.warn = (...a) => { if (String(a[0]).includes('standardFontDataUrl')) return; _origWarn(...a); };
 
@@ -154,51 +153,251 @@ async function readPDF(filePath, opts = {}) {
     info       = await parser.getInfo();
     textResult = await parser.getText();
     parser.destroy();
-  } catch (parseErr) {
-    // pdf-parse failed entirely (corrupted, encrypted without password, etc.)
-    // Try OCR directly
-    console.warn = _origWarn;
-    try {
-      return await ocrPDF(filePath);
-    } catch (ocrErr) {
-      throw new Error(`PDF unreadable: ${parseErr.message}. OCR also failed: ${ocrErr.message}`);
-    }
   } finally {
     console.warn = _origWarn;
   }
 
-  const totalPages   = info?.total || 1;
-  let   fullText     = textResult?.text || '';
+  const totalPages = info?.total || 1;
+  const rawPages   = textResult?.pages || [];
 
-  // Apply page range filter if requested
-  if ((startPage || endPage) && textResult?.pages?.length > 0) {
-    const s = (startPage || 1) - 1;
-    const e = endPage || textResult.pages.length;
-    fullText = textResult.pages
-      .slice(s, e)
-      .map((p, i) => `--- Page ${s + i + 1} ---\n${p.text}`)
-      .join('\n\n');
+  // Build paginated result
+  const s = (startPage || 1) - 1;
+  const e = endPage || rawPages.length;
+  const pages = rawPages.length > 0
+    ? rawPages.slice(s, e).map((p, i) => ({ page: s + i + 1, text: p.text, tables: [], charCount: p.text.length }))
+    : [{ page: 1, text: textResult?.text || '', tables: [], charCount: (textResult?.text || '').length }];
+
+  return { total: totalPages, pages, meta: {} };
+}
+
+/**
+ * ocrPDF(filePath, maxPages)
+ * OCR using PyMuPDF → tesseract. For scanned/image-based PDFs.
+ */
+async function ocrPDF(filePath, maxPages = 20) {
+  const script = `
+import sys, os, tempfile, subprocess, json
+try:
+    import fitz
+except ImportError:
+    print(json.dumps({'error': 'PyMuPDF not installed. Run: pip install PyMuPDF'}))
+    sys.exit(0)
+
+pdf_path  = sys.argv[1]
+max_pages = int(sys.argv[2]) if len(sys.argv) > 2 else 20
+
+try:
+    doc = fitz.open(pdf_path)
+except Exception as e:
+    print(json.dumps({'error': f'Cannot open PDF: {e}'}))
+    sys.exit(0)
+
+results = []
+for i in range(min(len(doc), max_pages)):
+    page = doc[i]
+
+    # First try fitz text extraction (fast, no tesseract needed)
+    text = page.get_text('text').strip()
+    if len(text) > 50:
+        results.append({'page': i + 1, 'text': text, 'method': 'fitz'})
+        continue
+
+    # Scanned page — render and OCR
+    mat = fitz.Matrix(2.5, 2.5)
+    pix = page.get_pixmap(matrix=mat, colorspace=fitz.csGRAY)
+    fd, img_path = tempfile.mkstemp(suffix='.png')
+    os.close(fd)
+    fd, out_base = tempfile.mkstemp(suffix='.txt')
+    os.close(fd)
+    out_base = out_base[:-4]
+    try:
+        pix.save(img_path)
+        r = subprocess.run(['tesseract', img_path, out_base, '-l', 'eng', '--psm', '1'],
+                           capture_output=True, timeout=60)
+        txt_file = out_base + '.txt'
+        if os.path.exists(txt_file):
+            with open(txt_file, 'r', encoding='utf-8', errors='replace') as f:
+                text = f.read().strip()
+            os.unlink(txt_file)
+            if text:
+                results.append({'page': i + 1, 'text': text, 'method': 'ocr'})
+    except FileNotFoundError:
+        results.append({'page': i + 1, 'text': '(tesseract not installed — install with: brew install tesseract)', 'method': 'ocr_failed'})
+    finally:
+        if os.path.exists(img_path): os.unlink(img_path)
+
+total_pages = len(doc)
+doc.close()
+print(json.dumps({'pages': results, 'total': total_pages}))
+`;
+
+  const result = await runPythonScript(script, [filePath, maxPages], 300000);
+  if (result.error) throw new Error(result.error);
+  return result;
+}
+
+/**
+ * formatPDFOutput(extractResult, opts)
+ * Converts the structured extraction result into a readable string for the agent.
+ */
+function formatPDFOutput(result, opts = {}) {
+  const { mode = 'full', filePath } = opts;
+  const { total, pages, meta } = result;
+  const fname = path.basename(filePath || '');
+
+  const lines = [`[PDF: ${total} page(s) — ${fname}]`];
+
+  if (meta && Object.keys(meta).length > 0) {
+    const metaStr = Object.entries(meta)
+      .filter(([k]) => ['Title', 'Author', 'Subject', 'Creator', 'CreationDate'].includes(k))
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(' | ');
+    if (metaStr) lines.push(`Metadata: ${metaStr}`);
   }
 
-  const charsPerPage = fullText.replace(/[\s\-–—|]/g, '').length / totalPages;
-
-  // Scanned PDF — text-layer is empty or just boilerplate; try OCR
-  if (charsPerPage < 30) {
-    try {
-      const ocrText = await ocrPDF(filePath, endPage || 30);
-      return ocrText;
-    } catch (ocrErr) {
-      // tesseract or fitz not available — return sparse text with explanation
-      return [
-        `[PDF: ${totalPages} page(s) — ${path.basename(filePath)}]`,
-        `NOTE: This appears to be a scanned (image-based) PDF. No selectable text found.`,
-        `To read scanned PDFs, install: pip install PyMuPDF && brew install tesseract`,
-        fullText.trim() || '(no text layer)',
-      ].join('\n');
+  if (mode === 'overview') {
+    lines.push(`\nDOCUMENT OVERVIEW (first ~400 chars per page):`);
+    lines.push(`Use office_read_pdf with startPage/endPage to read specific sections.\n`);
+    for (const p of pages) {
+      const preview = p.text.trim().slice(0, 400).replace(/\n+/g, ' ');
+      const tableNote = p.tables?.length > 0 ? ` [${p.tables.length} table(s)]` : '';
+      lines.push(`--- Page ${p.page} / ${total}${tableNote} ---\n${preview || '(no text)'}...`);
+    }
+  } else {
+    lines.push('');
+    for (const p of pages) {
+      lines.push(`--- Page ${p.page} / ${total} ---`);
+      if (p.text.trim()) {
+        lines.push(p.text.trim());
+      } else {
+        lines.push('(no text on this page)');
+      }
+      if (p.tables?.length > 0) {
+        for (let ti = 0; ti < p.tables.length; ti++) {
+          lines.push(`\n[Table ${ti + 1} on page ${p.page}]`);
+          const tbl = p.tables[ti];
+          for (const row of tbl) {
+            lines.push(row.join(' | '));
+          }
+        }
+      }
+      lines.push('');
     }
   }
 
-  return `[PDF: ${totalPages} pages — ${path.basename(filePath)}]\n\n${fullText.trim()}`;
+  return lines.join('\n');
+}
+
+/**
+ * readPDF(filePath, opts)
+ * Main entry point for PDF reading.
+ * Strategy: pdfplumber → pdf-parse → OCR
+ */
+async function readPDF(filePath, opts = {}) {
+  const { startPage, endPage, password, mode = 'full' } = opts;
+
+  // Strategy 1: pdfplumber (best quality)
+  let extractResult;
+  try {
+    extractResult = await extractWithPdfplumber(filePath, { startPage, endPage, mode });
+    if (extractResult.error) throw new Error(extractResult.error);
+  } catch (plumberErr) {
+    // Strategy 2: pdf-parse (Node fallback)
+    try {
+      extractResult = await extractWithPdfParse(filePath, { startPage, endPage, password });
+    } catch (parseErr) {
+      extractResult = null;
+    }
+  }
+
+  if (extractResult) {
+    const { total, pages } = extractResult;
+    const totalChars = pages.reduce((s, p) => s + (p.charCount || p.text?.length || 0), 0);
+    const charsPerPage = totalChars / Math.max(pages.length, 1);
+
+    // Scanned PDF detection: sparse text layer
+    if (charsPerPage < 30 && total > 0) {
+      try {
+        const ocrResult = await ocrPDF(filePath, endPage || Math.min(total, 30));
+        if (ocrResult.pages?.length > 0) {
+          // Merge OCR result into extractResult format
+          extractResult = {
+            total: ocrResult.total,
+            pages: ocrResult.pages.map((p) => ({ ...p, tables: [], charCount: p.text.length })),
+            meta: extractResult.meta || {},
+            _ocr: true,
+          };
+        }
+      } catch (_) {
+        // OCR unavailable — proceed with sparse text + explanation
+        extractResult.pages = extractResult.pages.map((p) => ({
+          ...p,
+          text: p.text || '(scanned page — install PyMuPDF + tesseract for OCR)',
+        }));
+      }
+    }
+
+    return formatPDFOutput(extractResult, { mode, filePath });
+  }
+
+  throw new Error(`Could not extract text from PDF: ${path.basename(filePath)}`);
+}
+
+/**
+ * searchPDF(filePath, query, opts)
+ * Search for terms/phrases within a PDF and return matching pages with context.
+ * Returns { total, matchCount, matches: [{page, line, context}] }
+ */
+async function searchPDF(filePath, query, opts = {}) {
+  const { maxResults = 30, contextLines = 3 } = opts;
+
+  const script = `
+import sys, json, re
+try:
+    import pdfplumber
+except ImportError:
+    print(json.dumps({'error': 'pdfplumber not installed. Run: pip install pdfplumber'}))
+    sys.exit(0)
+
+pdf_path    = sys.argv[1]
+query       = sys.argv[2]
+max_results = int(sys.argv[3]) if len(sys.argv) > 3 else 30
+ctx_lines   = int(sys.argv[4]) if len(sys.argv) > 4 else 3
+
+try:
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+except Exception:
+    pattern = None
+
+matches = []
+total = 0
+try:
+    with pdfplumber.open(pdf_path) as pdf:
+        total = len(pdf.pages)
+        for i, page in enumerate(pdf.pages):
+            text = page.extract_text(x_tolerance=3, y_tolerance=3) or ''
+            lines = text.split('\\n')
+            for j, line in enumerate(lines):
+                if (pattern and pattern.search(line)) or (not pattern and query.lower() in line.lower()):
+                    start = max(0, j - ctx_lines)
+                    end   = min(len(lines), j + ctx_lines + 1)
+                    context = '\\n'.join(lines[start:end])
+                    matches.append({
+                        'page': i + 1,
+                        'line_num': j + 1,
+                        'line': line.strip(),
+                        'context': context.strip(),
+                    })
+                    if len(matches) >= max_results:
+                        break
+            if len(matches) >= max_results:
+                break
+    print(json.dumps({'matches': matches, 'total_pages': total}))
+except Exception as e:
+    print(json.dumps({'error': str(e)}))
+`;
+
+  return runPythonScript(script, [filePath, query, maxResults, contextLines]);
 }
 
 function shellExec(cmd, timeout = 60000) {
@@ -267,13 +466,83 @@ const OfficeTools = [
   {
     name: 'office_read_pdf',
     category: 'office',
-    description: 'Read and extract text from a PDF file. Returns the full text content with page numbers. Optionally limit to specific page range. Handles password-protected PDFs if password is provided.',
-    params: ['path', 'startPage', 'endPage', 'password'],
+    description: 'Read and extract text (and tables) from a PDF file. Uses pdfplumber for high-quality extraction. Returns paginated text with --- Page N / TOTAL --- markers. For large PDFs, use mode="overview" first to survey the document, then read specific page ranges.',
+    params: ['path', 'mode', 'startPage', 'endPage', 'password'],
     permissionLevel: 'safe',
-    async execute({ path: filePath, startPage, endPage, password }) {
+    async execute({ path: filePath, mode = 'full', startPage, endPage, password }) {
       if (!filePath) throw new Error('path is required');
       const resolved = resolvePath(filePath);
-      return await readPDF(resolved, { startPage, endPage, password });
+      return await readPDF(resolved, { mode, startPage, endPage, password });
+    },
+  },
+
+  {
+    name: 'office_pdf_search',
+    category: 'office',
+    description: 'Search for specific terms, phrases, or keywords within a PDF. Returns matching lines with surrounding context and page numbers. Use this when looking for specific information without reading the entire document.',
+    params: ['path', 'query', 'maxResults'],
+    permissionLevel: 'safe',
+    async execute({ path: filePath, query, maxResults = 30 }) {
+      if (!filePath) throw new Error('path is required');
+      if (!query)    throw new Error('query is required');
+      const resolved = resolvePath(filePath);
+      const result = await searchPDF(resolved, query, { maxResults });
+      if (result.error) throw new Error(result.error);
+      const { matches, total_pages } = result;
+      if (!matches || matches.length === 0) {
+        return `[PDF Search] No matches for "${query}" in ${path.basename(resolved)} (${total_pages} pages).`;
+      }
+      const lines = [
+        `[PDF Search: "${query}" — ${matches.length} match(es) across ${total_pages} pages — ${path.basename(resolved)}]\n`,
+      ];
+      for (const m of matches) {
+        lines.push(`--- Page ${m.page} (line ${m.line_num}) ---`);
+        lines.push(m.context);
+        lines.push('');
+      }
+      return lines.join('\n');
+    },
+  },
+
+  {
+    name: 'office_pdf_ask',
+    category: 'office',
+    description: 'Ask a specific question about a PDF document. For Anthropic and Google providers, sends the entire PDF directly to the AI for native document understanding — perfect for Q&A, summaries, and analysis of complex PDFs including tables and images. For other providers, extracts text and answers using that.',
+    params: ['path', 'question'],
+    permissionLevel: 'safe',
+    async execute({ path: filePath, question }) {
+      if (!filePath)  throw new Error('path is required');
+      if (!question)  throw new Error('question is required');
+      const resolved = resolvePath(filePath);
+
+      const { askAboutPDF, getCurrentProvider } = require('../llm');
+      const provider = getCurrentProvider();
+
+      // For Anthropic/Google: use native PDF vision (most accurate)
+      if (provider === 'anthropic' || provider === 'google') {
+        try {
+          return await askAboutPDF(resolved, question);
+        } catch (err) {
+          // If file too large or other error, fall through to text extraction
+          console.warn(`[office_pdf_ask] Native PDF failed (${err.message}), falling back to text`);
+        }
+      }
+
+      // Fallback: extract text with pdfplumber, then ask
+      let extractResult;
+      try {
+        extractResult = await extractWithPdfplumber(resolved, { mode: 'full' });
+      } catch (_) {
+        extractResult = await extractWithPdfParse(resolved, {});
+      }
+
+      const fullText = formatPDFOutput(extractResult, { mode: 'full', filePath: resolved });
+
+      // Truncate if too long (keep within ~60K chars)
+      const truncated = fullText.length > 60000 ? fullText.slice(0, 60000) + '\n...(truncated)' : fullText;
+
+      const { askAboutPDF: _ask } = require('../llm');
+      return await _ask(resolved, question, { fallbackText: truncated });
     },
   },
 

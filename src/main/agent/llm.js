@@ -847,6 +847,119 @@ async function _geminiSimple(endpoint, apiKey, model, systemPrompt, userMessage,
 }
 
 // ---------------------------------------------------------------------------
+// Native PDF Q&A — sends the PDF binary directly to vision-capable providers
+// ---------------------------------------------------------------------------
+
+/**
+ * askAboutPDF(filePath, question, options)
+ *
+ * Sends a PDF file + question directly to the LLM using provider-native PDF
+ * document support (Anthropic document API, Gemini inline_data).
+ * Falls back to text extraction + callLLM for other providers.
+ *
+ * @param {string}  filePath   Absolute path to PDF file
+ * @param {string}  question   The question to ask about the PDF
+ * @param {object}  options    { maxTokens, fallbackText }
+ * @returns {Promise<string>}  LLM answer
+ */
+async function askAboutPDF(filePath, question, options = {}) {
+  const merged = { ...settings, ...options };
+  const { provider, model, temperature } = merged;
+  const maxTokens = merged.maxTokens || 4096;
+
+  const catalogEntry = MODEL_CATALOG[provider];
+  const endpoint = merged.endpoint || catalogEntry?.endpoint || '';
+
+  let apiKey = merged.apiKey || '';
+  if (!apiKey && _keyStore && provider !== 'ollama') {
+    apiKey = _keyStore.getKey(provider) || '';
+  }
+
+  const fsp = require('fs/promises');
+  const pdfData = await fsp.readFile(filePath);
+  const pdfBase64 = pdfData.toString('base64');
+  const fileSizeMB = pdfData.length / (1024 * 1024);
+
+  // Anthropic native PDF document support (200K ctx, up to ~100 pages/32MB)
+  if (provider === 'anthropic') {
+    if (!apiKey) throw new Error('No Anthropic API key configured. Add one in Settings → LLM.');
+
+    const url = new URL('/v1/messages', endpoint || MODEL_CATALOG.anthropic.endpoint);
+    const body = {
+      model,
+      max_tokens: maxTokens,
+      temperature,
+      system: 'You are an expert document analyst. Read the PDF thoroughly and answer questions with specific details, page references, and accurate citations from the document. Never skip content.',
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 },
+          },
+          { type: 'text', text: question },
+        ],
+      }],
+    };
+
+    const response = await httpRequest(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'pdfs-2024-09-25',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = JSON.parse(response);
+    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+    return data.content?.[0]?.text || '';
+  }
+
+  // Google Gemini native PDF support
+  if (provider === 'google') {
+    if (!apiKey) throw new Error('No Google API key configured. Add one in Settings → LLM.');
+
+    const baseUrl = endpoint || MODEL_CATALOG.google.endpoint;
+    const url = new URL(`/v1beta/models/${model}:generateContent?key=${apiKey}`, baseUrl);
+    const body = {
+      system_instruction: { parts: [{ text: 'You are an expert document analyst. Read the PDF thoroughly and answer questions with specific details and page references.' }] },
+      contents: [{
+        parts: [
+          { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
+          { text: question },
+        ],
+      }],
+      generationConfig: { temperature, maxOutputTokens: maxTokens },
+    };
+
+    const response = await httpRequest(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = JSON.parse(response);
+    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  }
+
+  // Fallback: use pre-extracted text if provided
+  if (options.fallbackText) {
+    return callLLM(
+      'You are an expert document analyst. Answer questions accurately using only the provided document text. Always cite page numbers when available.',
+      `DOCUMENT TEXT:\n${options.fallbackText}\n\n---\nQUESTION: ${question}\n\nAnswer thoroughly with specific details and page references:`,
+      options
+    );
+  }
+
+  // Last resort: tell caller we need text extraction
+  throw new Error(
+    `Provider '${provider}' does not support native PDF vision. Use office_read_pdf to extract text first, then ask your question.`
+  );
+}
+
+// ---------------------------------------------------------------------------
 // HTTP helper
 // ---------------------------------------------------------------------------
 
@@ -892,6 +1005,7 @@ function httpRequest(url, options) {
 module.exports = {
   callLLM,
   callWithTools,
+  askAboutPDF,
   configure,
   setKeyStore,
   getModelCatalog,

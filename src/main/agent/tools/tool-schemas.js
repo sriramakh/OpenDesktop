@@ -639,26 +639,84 @@ const TOOL_SCHEMAS = {
   // Office documents
   // ---------------------------------------------------------------------------
   office_read_pdf: {
-    description: 'Read and extract text from a PDF file. Returns full text content with page markers. Optionally limit to a page range.',
+    description: `Read and extract text (and tables) from a PDF file using pdfplumber.
+Returns paginated output with "--- Page N / TOTAL ---" markers for every page.
+
+STRATEGY FOR LARGE PDFs:
+1. Start with mode="overview" to see the full document structure (first ~400 chars per page, table counts).
+2. Read specific sections with startPage/endPage (e.g. pages 1-10, then 11-20).
+3. Use office_pdf_search to find specific terms/sections.
+4. Use office_pdf_ask to ask direct questions — the AI reads the whole PDF natively.
+
+Never read a 100-page PDF in one shot — use overview + targeted page ranges.`,
     properties: {
       path: {
         type: 'string',
         description: 'Absolute path to the PDF file.',
       },
+      mode: {
+        type: 'string',
+        enum: ['full', 'overview'],
+        description: '"full" (default) = complete text + tables for requested pages. "overview" = one-liner per page + table counts — fast document survey for large PDFs.',
+      },
       startPage: {
         type: 'number',
-        description: 'First page to read (1-indexed). Default: 1 (read from beginning).',
+        description: 'First page to read (1-indexed). Default: 1.',
       },
       endPage: {
         type: 'number',
-        description: 'Last page to read. Default: read all pages (up to 30).',
+        description: 'Last page to read. Omit to read all pages (or use with startPage for chunked reading).',
       },
       password: {
         type: 'string',
-        description: 'Password for encrypted PDFs (if required).',
+        description: 'Password for encrypted PDFs.',
       },
     },
     required: ['path'],
+  },
+
+  office_pdf_search: {
+    description: `Search for terms, phrases, or keywords inside a PDF.
+Returns every matching line with ±3 lines of surrounding context and the page number.
+Use this to locate specific facts, names, numbers, or sections without reading everything.`,
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Absolute path to the PDF file.',
+      },
+      query: {
+        type: 'string',
+        description: 'Text to search for (case-insensitive). Can be a word, phrase, or name.',
+      },
+      maxResults: {
+        type: 'number',
+        description: 'Maximum number of matching passages to return. Default: 30.',
+      },
+    },
+    required: ['path', 'query'],
+  },
+
+  office_pdf_ask: {
+    description: `Ask a specific question about a PDF and get a precise AI-generated answer.
+For Anthropic and Google providers: sends the ENTIRE PDF binary directly to the AI model — it reads all text, tables, charts, and images natively. This is the BEST tool for:
+- "What does the contract say about termination?"
+- "Summarize the key findings from the report"
+- "What are all the financial figures mentioned?"
+- "Compare section 3 and section 7"
+
+For other providers: extracts text and answers using that.
+ALWAYS prefer this tool over manually reading + summarizing large PDFs.`,
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Absolute path to the PDF file.',
+      },
+      question: {
+        type: 'string',
+        description: 'The specific question to answer about the PDF. Be precise and detailed for best results.',
+      },
+    },
+    required: ['path', 'question'],
   },
 
   office_read_docx: {

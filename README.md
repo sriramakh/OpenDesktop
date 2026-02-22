@@ -42,7 +42,7 @@ Built with **Electron + React + Node.js** — everything runs locally on your ma
 │  │  • Search/Fetch (4)  │  ├──────────────────────────┤ │
 │  │  • System (6)        │  │  Permission Manager       │ │
 │  │  • LLM (4)           │  │  safe / sensitive / danger │ │
-│  │  Total: 46 tools     │  └──────────────────────────┘ │
+│  │  Total: 48 tools     │  └──────────────────────────┘ │
 │  └──────────────────────┘                                │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -105,20 +105,20 @@ Choose from **10 providers** and **80+ models** directly in the Settings UI:
 - **Encrypted API key storage** — AES-256-GCM encryption with machine-specific key derivation (PBKDF2, 100K iterations)
 - Keys are stored in `~/.config/open-desktop/.keystore.enc`, never in plaintext
 
-### Unified Tool System (46 tools)
+### Unified Tool System (48 tools)
 
 All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native function calling with every LLM provider.
 
 | Category | Tools | Count | Permission |
 |----------|-------|:-----:|------------|
 | **Filesystem** | `fs_read`, `fs_write`, `fs_edit`, `fs_list`, `fs_search`, `fs_delete`, `fs_move`, `fs_mkdir`, `fs_tree`, `fs_info`, `fs_organize` | 11 | Safe/Sensitive/Dangerous |
-| **Office Documents** | `office_read_pdf`, `office_read_docx`, `office_write_docx`, `office_read_xlsx`, `office_write_xlsx`, `office_chart_xlsx`, `office_read_pptx`, `office_write_pptx`, `office_read_csv`, `office_write_csv` | 10 | Safe/Sensitive |
+| **Office Documents** | `office_read_pdf`, `office_pdf_search`, `office_pdf_ask`, `office_read_docx`, `office_write_docx`, `office_read_xlsx`, `office_write_xlsx`, `office_chart_xlsx`, `office_read_pptx`, `office_write_pptx`, `office_read_csv`, `office_write_csv` | 12 | Safe/Sensitive |
 | **App Control** | `app_open`, `app_find`, `app_list`, `app_focus`, `app_quit`, `app_screenshot` | 6 | Safe/Sensitive |
 | **Browser** | `browser_navigate`, `browser_click`, `browser_type`, `browser_key`, `browser_submit_form` | 5 | Sensitive/Dangerous |
 | **Search/Fetch** | `web_search`, `web_fetch`, `web_fetch_json`, `web_download` | 4 | Safe/Sensitive |
 | **System** | `system_exec`, `system_info`, `system_processes`, `system_clipboard_read`, `system_clipboard_write`, `system_notify` | 6 | Safe/Sensitive |
 | **LLM** | `llm_query`, `llm_summarize`, `llm_extract`, `llm_code` | 4 | Safe |
-| **Total** | | **46** | |
+| **Total** | | **48** | |
 
 #### Key tool capabilities
 
@@ -127,7 +127,11 @@ All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native f
 - **`fs_organize`** — Atomic directory organizer: classifies files by extension into category folders (Images, Videos, Documents, etc.), only moves files (never subdirectories), supports dry-run preview and custom rules
 - **`app_open`** — Smart app resolution: fuzzy-matches app names against `/Applications` (handles typos like "olama" → "Ollama"), falls back to Spotlight search
 - **`app_find`** — Search for installed apps by name with fuzzy matching and confidence scores
-- **`office_read_pdf`** — Full PDF text extraction via `pdf-parse` v2 with page range support, password handling, and **automatic OCR for scanned PDFs** (detects < 30 chars/page → renders via PyMuPDF → tesseract OCR)
+- **PDF Reading Pipeline** (`office_read_pdf`, `office_pdf_search`, `office_pdf_ask`)
+  - Uses `pdfplumber` for high-quality text extraction
+  - Supports chunked reading with start/end pages
+  - **Native document analysis:** `office_pdf_ask` sends the full PDF to Anthropic/Google for deep reasoning
+  - **OCR fallback** for scanned PDFs using `PyMuPDF` (`fitz`) and `tesseract`
 - **`office_read_docx`** — Word document extraction via `mammoth` (text or HTML output)
 - **`office_write_docx`** — Creates `.docx` files from markdown-like content (headings, bullets, numbered lists)
 - **`office_read_xlsx`** — Excel read via SheetJS with `summaryOnly` mode, merged cells/column widths metadata, row×col dimensions
@@ -258,9 +262,9 @@ OpenDesktop/
 │   │       ├── context.js       # OS context awareness
 │   │       └── tools/
 │   │           ├── registry.js      # Tool registration + provider-specific schema generation
-│   │           ├── tool-schemas.js  # JSON Schema definitions for all 46 tools
+│   │           ├── tool-schemas.js  # JSON Schema definitions for all 48 tools
 │   │           ├── filesystem.js    # 11 file ops (read, write, move, organize, tree, etc.)
-│   │           ├── office.js        # 10 office document ops (PDF, DOCX, XLSX, PPTX, CSV)
+│   │           ├── office.js        # 12 office document ops (PDF, DOCX, XLSX, PPTX, CSV)
 │   │           ├── app-control.js   # 6 app ops (open with fuzzy match, find, list, etc.)
 │   │           ├── browser.js       # 5 browser/UI automation ops
 │   │           ├── search-fetch.js  # 4 web ops

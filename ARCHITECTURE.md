@@ -57,8 +57,8 @@ OpenDesktop is a **local-first autonomous AI agent** that runs natively on macOS
 │  │              │    └── KeyStore (AES-256-GCM)                │  │
 │  │              └── PermissionManager (safe/sensitive/danger)  │  │
 │  │                                                            │  │
-│  │  ┌─── Tool Registry (46 tools) ────────────────────────┐  │  │
-│  │  │ Filesystem(11) │ Office(10) │ AppControl(6)         │  │  │
+│  │  ┌─── Tool Registry (48 tools) ────────────────────────┐  │  │
+│  │  │ Filesystem(11) │ Office(12) │ AppControl(6)         │  │  │
 │  │  │ Browser(5)     │ Search(4) │ System(6) │ LLM(4)     │  │  │
 │  │  └─────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────┘  │
@@ -108,7 +108,7 @@ app.whenReady()
       → new AgentCore({ memory, permissions, context, toolRegistry, keyStore, emit })
       → memory.initialize()                // Create/open SQLite DB
       → keyStore.initialize()              // Decrypt .keystore.enc
-      → toolRegistry.registerBuiltinTools() // Load all 46 tools
+      → toolRegistry.registerBuiltinTools() // Load all 48 tools
   → createWindow()                          // BrowserWindow with vibrancy
   → setupIPC()                              // Register all IPC handlers
 ```
@@ -437,11 +437,13 @@ Other: `strings` command fallback
 **File organization categories (EXT_CATEGORIES):**
 Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, Applications, Fonts — covering 80+ extensions.
 
-#### Office Documents (10 tools) — `office.js`
+#### Office Documents (12 tools) — `office.js`
 
 | Tool | Permission | Description |
 |------|-----------|-------------|
-| `office_read_pdf` | safe | PDF text extraction with page range, password support, and automatic OCR for scanned PDFs |
+| `office_read_pdf` | safe | Read and extract text/tables from a PDF file. Supports paginated output, chunked reading (startPage/endPage), and "overview" mode for surveying large PDFs. Falls back to PyMuPDF/tesseract OCR for scanned documents. |
+| `office_pdf_search` | safe | Search for specific terms, phrases, or keywords within a PDF. Returns matching lines with surrounding context and page numbers. |
+| `office_pdf_ask` | safe | Ask a specific question about a PDF document. For Anthropic and Google providers, sends the entire PDF directly to the AI for native document understanding (perfect for Q&A, summaries, tables, images). |
 | `office_read_docx` | safe | Word document extraction via mammoth (text or HTML) |
 | `office_write_docx` | sensitive | Create DOCX from markdown-like content (headings, bullets, numbered lists) via Office Open XML |
 | `office_read_xlsx` | safe | Excel read via SheetJS — summaryOnly mode, merged cells/column widths metadata, row×col dimensions |
@@ -908,9 +910,9 @@ OpenDesktop/
 │       │
 │       └── tools/                  # ═══ TOOL IMPLEMENTATIONS ═══
 │           ├── registry.js         # ToolRegistry: registration + provider-specific schemas
-│           ├── tool-schemas.js     # JSON Schema definitions for all 46 tools
+│           ├── tool-schemas.js     # JSON Schema definitions for all 48 tools
 │           ├── filesystem.js       # 11 tools: read, write, edit, list, search, move, organize...
-│           ├── office.js           # 10 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), PPTX (pptxgenjs), CSV
+│           ├── office.js           # 12 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), PPTX (pptxgenjs), CSV
 │           ├── app-control.js      # 6 tools: open (fuzzy), find, list, focus, quit, screenshot
 │           ├── browser.js          # 5 tools: navigate, click, type, key, submit_form
 │           ├── search-fetch.js     # 4 tools: web_search, web_fetch, web_fetch_json, web_download
