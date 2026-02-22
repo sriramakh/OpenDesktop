@@ -88,18 +88,41 @@ const OfficeTools = [
     async execute({ path: filePath, startPage, endPage, password }) {
       if (!filePath) throw new Error('path is required');
       const resolved = resolvePath(filePath);
-      const pdfParse = require('pdf-parse');
 
-      const rawData = await fsp.readFile(resolved);
-      const options = {};
-      if (endPage) options.max = endPage;
-      if (password) options.password = password;
-
-      let result;
       try {
-        result = await pdfParse(rawData, options);
+        // pdf-parse v2.x API: class-based with Uint8Array input
+        const { PDFParse } = require('pdf-parse');
+        const rawData = await fsp.readFile(resolved);
+        const uint8 = new Uint8Array(rawData);
+
+        const opts = {};
+        if (password) opts.password = password;
+
+        const parser = new PDFParse(uint8, opts);
+        await parser.load();
+
+        const info = await parser.getInfo();
+        const textResult = await parser.getText();
+        parser.destroy();
+
+        const totalPages = info.total || textResult.total || 0;
+
+        // Handle page range filtering
+        let text;
+        if ((startPage || endPage) && textResult.pages && textResult.pages.length > 0) {
+          const start = (startPage || 1) - 1;
+          const end = endPage || textResult.pages.length;
+          text = textResult.pages
+            .slice(start, end)
+            .map((p, i) => `--- Page ${start + i + 1} ---\n${p.text}`)
+            .join('\n\n');
+        } else {
+          text = textResult.text || '';
+        }
+
+        return `[PDF: ${totalPages} pages — ${path.basename(resolved)}]\n\n${text.trim()}`;
       } catch (err) {
-        // Fallback to pdftotext CLI
+        // Fallback to pdftotext CLI (poppler)
         try {
           const extra = password ? `-upw "${password}"` : '';
           const pageRange = (startPage || endPage)
@@ -111,12 +134,6 @@ const OfficeTools = [
           throw new Error(`PDF extraction failed: ${err.message}. Install poppler (brew install poppler) for fallback.`);
         }
       }
-
-      const text = startPage
-        ? result.text.split('\f').slice(startPage - 1, endPage || undefined).join('\n--- page break ---\n')
-        : result.text;
-
-      return `[PDF: ${result.numpages} pages — ${path.basename(resolved)}]\n\n${text.trim()}`;
     },
   },
 

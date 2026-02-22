@@ -84,13 +84,19 @@ async function extractBinaryContent(filePath, ext) {
 
   // ── PDF ──────────────────────────────────────────────────────────────────────
   if (ext === '.pdf') {
-    // Strategy 1: pdf-parse (native Node.js, no external deps)
+    // Strategy 1: pdf-parse v2.x (class-based API with Uint8Array)
     strategies.push(async () => {
-      const pdfParse = require('pdf-parse');
+      const { PDFParse } = require('pdf-parse');
       const data = await fsp.readFile(filePath);
-      const result = await pdfParse(data, { max: 30 }); // max 30 pages
-      if (!result.text || result.text.trim().length < 10) throw new Error('Empty PDF text');
-      return `[PDF: ${result.numpages} pages]\n\n${result.text}`;
+      const uint8 = new Uint8Array(data);
+      const parser = new PDFParse(uint8);
+      await parser.load();
+      const info = await parser.getInfo();
+      const textResult = await parser.getText();
+      parser.destroy();
+      const text = textResult.text || '';
+      if (text.trim().length < 10) throw new Error('Empty PDF text');
+      return `[PDF: ${info.total || 0} pages]\n\n${text}`;
     });
 
     // Strategy 2: pdftotext (poppler CLI)
