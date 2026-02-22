@@ -83,8 +83,8 @@ Choose from **10 providers** and **80+ models** directly in the Settings UI:
 |----------|--------|:------------:|
 | **Ollama (Local)** | Llama 3/3.1/3.2/3.3, Qwen 2.5/3, Mistral, Mixtral, Mistral Nemo, CodeLlama, DeepSeek Coder V2/R1, Phi-3/4, Gemma 2/3, Command R, Llama 3.2 Vision + any locally installed model | No |
 | **OpenAI** | GPT-4.1, GPT-4.1 Mini, GPT-4.1 Nano, GPT-4o, GPT-4o Mini, o3, o3 Mini, o4 Mini, o1, o1 Mini, GPT-4 Turbo, GPT-3.5 Turbo | Yes |
-| **Anthropic (Claude)** | Claude Opus 4.5, Sonnet 4.5, Sonnet 4, 3.7 Sonnet, 3.5 Sonnet v2, 3.5 Haiku, 3 Opus, 3 Haiku | Yes |
-| **Google (Gemini)** | Gemini 2.5 Pro, 2.5 Flash, 2.0 Flash, 2.0 Flash Lite, 1.5 Pro, 1.5 Flash | Yes |
+| **Anthropic** | Claude Opus 4.6, Claude Opus 4.5, Claude Sonnet 4.6, Claude Sonnet 4.5, Claude Sonnet 4, Claude 3.7 Sonnet, Claude 3.5 Sonnet v2, Claude 3.5 Haiku, Claude 3 Opus, Claude 3 Haiku | Yes |
+| **Google** | Gemini 3.1 Pro, Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 2.0 Flash, Gemini 2.0 Flash Lite, Gemini 1.5 Pro, Gemini 1.5 Flash | Yes |
 | **DeepSeek** | DeepSeek V3, DeepSeek R1 | Yes |
 | **xAI (Grok)** | Grok 3, Grok 3 Fast, Grok 3 Mini, Grok 3 Mini Fast, Grok 2 | Yes |
 | **Mistral AI** | Mistral Large, Medium, Small, Codestral, Mistral Nemo, Pixtral Large | Yes |

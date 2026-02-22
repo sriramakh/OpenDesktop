@@ -78,7 +78,9 @@ const MODEL_CATALOG = {
     endpoint: 'https://api.anthropic.com',
     keyPrefix: 'sk-ant-',
     models: [
+      { id: 'claude-opus-4-6',                name: 'Claude Opus 4.6',       ctx: 200000 },
       { id: 'claude-opus-4-5',                name: 'Claude Opus 4.5',       ctx: 200000 },
+      { id: 'claude-sonnet-4-6',              name: 'Claude Sonnet 4.6',     ctx: 200000 },
       { id: 'claude-sonnet-4-5',              name: 'Claude Sonnet 4.5',     ctx: 200000 },
       { id: 'claude-sonnet-4-20250514',       name: 'Claude Sonnet 4',       ctx: 200000 },
       { id: 'claude-3-7-sonnet-20250219',     name: 'Claude 3.7 Sonnet',     ctx: 200000 },
@@ -94,8 +96,9 @@ const MODEL_CATALOG = {
     endpoint: 'https://generativelanguage.googleapis.com',
     keyPrefix: 'AI',
     models: [
-      { id: 'gemini-2.5-pro-preview-06-05',   name: 'Gemini 2.5 Pro',        ctx: 1048576 },
-      { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash',      ctx: 1048576 },
+      { id: 'gemini-3.1-pro',   name: 'Gemini 3.1 Pro',        ctx: 1048576 },
+      { id: 'gemini-2.5-pro',   name: 'Gemini 2.5 Pro',        ctx: 1048576 },
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash',      ctx: 1048576 },
       { id: 'gemini-2.0-flash',               name: 'Gemini 2.0 Flash',      ctx: 1048576 },
       { id: 'gemini-2.0-flash-lite',          name: 'Gemini 2.0 Flash Lite', ctx: 1048576 },
       { id: 'gemini-1.5-pro',                 name: 'Gemini 1.5 Pro',        ctx: 2097152 },
