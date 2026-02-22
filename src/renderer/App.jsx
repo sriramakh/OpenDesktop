@@ -12,28 +12,32 @@ const api = window.api;
 const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 export default function App() {
-  const [messages,       setMessages]       = useState([]);
-  const [activePersona,  setActivePersona]  = useState('auto');
-  const [isProcessing,   setIsProcessing]   = useState(false);
-  const [phaseLabel,     setPhaseLabel]     = useState('');
-  const [approvalRequest, setApprovalRequest] = useState(null);
-  const [contextData,    setContextData]    = useState(null);
-  const [showSettings,   setShowSettings]   = useState(false);
-  const [showContext,    setShowContext]     = useState(true);
-  const [history,        setHistory]        = useState([]);
-  const [tools,          setTools]          = useState([]);
-  const [settings,       setSettings]       = useState(null);
+  const [messages,          setMessages]          = useState([]);
+  const [activePersona,     setActivePersona]     = useState('auto');
+  const [isProcessing,      setIsProcessing]      = useState(false);
+  const [phaseLabel,        setPhaseLabel]        = useState('');
+  const [approvalRequest,   setApprovalRequest]   = useState(null);
+  const [contextData,       setContextData]       = useState(null);
+  const [showSettings,      setShowSettings]      = useState(false);
+  const [showContext,       setShowContext]        = useState(true);
+  const [history,           setHistory]           = useState([]);
+  const [tools,             setTools]             = useState([]);
+  const [settings,          setSettings]          = useState(null);
+  const [selectedHistoryId, setSelectedHistoryId] = useState(null);
+  const [mcpServers,        setMCPServers]        = useState([]);
 
   // activeTaskId — the ID of the currently running task (for event correlation)
   const activeTaskIdRef = useRef(null);
 
   const loadSettings = () => api?.getSettings().then(setSettings).catch(console.error);
+  const refreshMCP   = () => api?.listMCPServers().then(setMCPServers).catch(console.error);
 
   // ── Initial data load ───────────────────────────────────────────────────────
   useEffect(() => {
     api?.listTools().then(setTools).catch(console.error);
     api?.getHistory(20).then(setHistory).catch(console.error);
     api?.getActiveContext().then(setContextData).catch(console.error);
+    api?.listMCPServers().then(setMCPServers).catch(console.error);
     loadSettings();
 
     const interval = setInterval(() => {
@@ -240,6 +244,7 @@ export default function App() {
         steps:      [],
       };
 
+      setSelectedHistoryId(null);
       setMessages((prev) => [...prev, userMsg, placeholderMsg]);
       setIsProcessing(true);
       setPhaseLabel('Gathering context...');
@@ -280,7 +285,38 @@ export default function App() {
   const handleNewSession = useCallback(() => {
     api?.newSession();
     setMessages([]);
+    setSelectedHistoryId(null);
   }, []);
+
+  // Restore a past session from history — reconstruct messages from stored query + summary
+  const handleSelectHistory = useCallback((item) => {
+    if (isProcessing) return;
+    setSelectedHistoryId(item.id);
+    api?.newSession();
+
+    const restored = [
+      {
+        role:      'user',
+        content:   item.query,
+        timestamp: item.timestamp,
+      },
+      {
+        role:       'assistant',
+        content:    item.summary || '(no summary recorded)',
+        taskId:     item.id,
+        timestamp:  item.timestamp,
+        completed:  true,
+        status:     item.status,
+        phase:      'complete',
+        steps:      [],
+        toolHistory: [],
+        activeCalls: [],
+        streamText:  '',
+        _isHistoryReplay: true,
+      },
+    ];
+    setMessages(restored);
+  }, [isProcessing]);
 
   return (
     <div className="h-screen flex flex-col bg-surface-0">
@@ -291,7 +327,10 @@ export default function App() {
           activePersona={activePersona}
           onPersonaChange={setActivePersona}
           history={history}
+          selectedHistoryId={selectedHistoryId}
+          onSelectHistory={handleSelectHistory}
           tools={tools}
+          mcpServers={mcpServers}
           showContext={showContext}
           onToggleContext={() => setShowContext(!showContext)}
           onNewSession={handleNewSession}
@@ -305,6 +344,7 @@ export default function App() {
           onCancel={handleCancel}
           activePersona={activePersona}
           settings={settings}
+          isHistoryReplay={selectedHistoryId !== null}
         />
 
         {showContext && <ContextPanel contextData={contextData} tools={tools} />}
@@ -318,7 +358,7 @@ export default function App() {
         />
       )}
 
-      {showSettings && <SettingsModal onClose={() => { setShowSettings(false); loadSettings(); }} />}
+      {showSettings && <SettingsModal onClose={() => { setShowSettings(false); loadSettings(); refreshMCP(); }} />}
     </div>
   );
 }

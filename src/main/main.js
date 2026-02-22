@@ -6,10 +6,13 @@ const { MemorySystem }     = require('./agent/memory');
 const { PermissionManager } = require('./agent/permissions');
 const { ContextAwareness } = require('./agent/context');
 const { KeyStore }         = require('./agent/keystore');
+const { MCPManager }       = require('./agent/mcp/manager');
 const { getModelCatalog, listOllamaModels } = require('./agent/llm');
 
-let mainWindow = null;
-let agentCore  = null;
+let mainWindow  = null;
+let agentCore   = null;
+let mcpManager  = null;
+let toolRegistry = null;
 
 const isDev = !app.isPackaged;
 
@@ -49,8 +52,9 @@ async function initializeAgent() {
   const memory       = new MemorySystem(userDataPath);
   const permissions  = new PermissionManager();
   const context      = new ContextAwareness();
-  const toolRegistry = new ToolRegistry(permissions);
+  toolRegistry       = new ToolRegistry(permissions);
   const keyStore     = new KeyStore(userDataPath);
+  mcpManager         = new MCPManager(userDataPath);
 
   agentCore = new AgentCore({
     memory,
@@ -68,6 +72,11 @@ async function initializeAgent() {
   await memory.initialize();
   await keyStore.initialize();
   await toolRegistry.registerBuiltinTools();
+
+  // Connect saved MCP servers and register their tools
+  await mcpManager.initialize();
+  toolRegistry.registerMCPTools(mcpManager);
+
   console.log('[OpenDesktop] Agent initialized');
 }
 
@@ -160,6 +169,45 @@ function setupIPC() {
     return agentCore.keyStore.hasKey(provider);
   });
 
+  // ── MCP Servers ────────────────────────────────────────────────────────────
+
+  ipcMain.handle('mcp:list-servers', async () => {
+    return mcpManager.listServers();
+  });
+
+  ipcMain.handle('mcp:add-server', async (_event, config) => {
+    try {
+      const result = await mcpManager.addServer(config);
+      toolRegistry.registerMCPTools(mcpManager);
+      return result;
+    } catch (err) {
+      console.error('[IPC] mcp:add-server error:', err);
+      return { error: err.message };
+    }
+  });
+
+  ipcMain.handle('mcp:remove-server', async (_event, { id }) => {
+    try {
+      const result = await mcpManager.removeServer(id);
+      toolRegistry.registerMCPTools(mcpManager);
+      return result;
+    } catch (err) {
+      console.error('[IPC] mcp:remove-server error:', err);
+      return { error: err.message };
+    }
+  });
+
+  ipcMain.handle('mcp:reconnect-server', async (_event, { id }) => {
+    try {
+      const result = await mcpManager.reconnectServer(id);
+      toolRegistry.registerMCPTools(mcpManager);
+      return result;
+    } catch (err) {
+      console.error('[IPC] mcp:reconnect-server error:', err);
+      return { error: err.message };
+    }
+  });
+
   // ── Window controls ────────────────────────────────────────────────────────
 
   ipcMain.on('window:minimize', () => mainWindow?.minimize());
@@ -183,9 +231,12 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   if (agentCore) {
     agentCore.memory.close();
     agentCore.keyStore.close();
+  }
+  if (mcpManager) {
+    await mcpManager.close();
   }
 });

@@ -18,6 +18,9 @@ import {
   Code,
   Sparkles,
   Plus,
+  Plug,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 
 const PERSONA_ICONS = {
@@ -43,9 +46,10 @@ const TOOL_CATEGORY_ICONS = {
   search: Search,
   system: Terminal,
   llm: Code,
+  mcp: Plug,
 };
 
-export default function Sidebar({ activePersona, onPersonaChange, history, tools, showContext, onToggleContext, onNewSession }) {
+export default function Sidebar({ activePersona, onPersonaChange, history, selectedHistoryId, onSelectHistory, tools, mcpServers, showContext, onToggleContext, onNewSession }) {
   const [expandedSection, setExpandedSection] = useState('persona');
 
   const toggleSection = (section) => {
@@ -109,26 +113,54 @@ export default function Sidebar({ activePersona, onPersonaChange, history, tools
 
         {expandedSection === 'tools' && (
           <div className="space-y-2 animate-fade-in max-h-48 overflow-y-auto">
-            {Object.entries(toolsByCategory).map(([category, catTools]) => {
-              const CatIcon = TOOL_CATEGORY_ICONS[category] || Wrench;
-              return (
-                <div key={category}>
-                  <div className="flex items-center gap-1.5 text-xs text-muted mb-1">
-                    <CatIcon size={11} />
-                    <span className="capitalize">{category}</span>
-                  </div>
-                  {catTools.map((tool) => (
-                    <div
-                      key={tool.name}
-                      className="pl-5 py-0.5 text-xs text-zinc-500 truncate"
-                      title={tool.description}
-                    >
-                      {tool.name}
+            {Object.entries(toolsByCategory)
+              .filter(([cat]) => cat !== 'mcp')
+              .map(([category, catTools]) => {
+                const CatIcon = TOOL_CATEGORY_ICONS[category] || Wrench;
+                return (
+                  <div key={category}>
+                    <div className="flex items-center gap-1.5 text-xs text-muted mb-1">
+                      <CatIcon size={11} />
+                      <span className="capitalize">{category}</span>
                     </div>
-                  ))}
+                    {catTools.map((tool) => (
+                      <div
+                        key={tool.name}
+                        className="pl-5 py-0.5 text-xs text-zinc-500 truncate"
+                        title={tool.description}
+                      >
+                        {tool.name}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+
+            {/* MCP servers */}
+            {mcpServers?.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1.5 text-xs text-muted mb-1">
+                  <Plug size={11} />
+                  <span>MCP</span>
                 </div>
-              );
-            })}
+                {mcpServers.map((server) => (
+                  <div key={server.id} className="pl-5 py-0.5 flex items-center gap-1.5">
+                    {server.status === 'connected'
+                      ? <Wifi size={9} className="text-emerald-500 shrink-0" />
+                      : <WifiOff size={9} className="text-red-400 shrink-0" />
+                    }
+                    <span className="text-xs text-zinc-500 truncate" title={server.error || server.name}>
+                      {server.name}
+                    </span>
+                    {server.status === 'connected' && (
+                      <span className="text-[9px] text-zinc-700 ml-auto shrink-0">
+                        {server.toolCount}t
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -150,27 +182,36 @@ export default function Sidebar({ activePersona, onPersonaChange, history, tools
             {history.length === 0 ? (
               <p className="text-xs text-zinc-600 italic">No history yet</p>
             ) : (
-              history.map((item, i) => (
-                <div
-                  key={i}
-                  className="flex items-start gap-2 p-2 rounded-lg hover:bg-surface-2 cursor-pointer transition-colors group"
-                >
-                  {item.status === 'completed' ? (
-                    <CheckCircle2 size={13} className="text-emerald-500 mt-0.5 shrink-0" />
-                  ) : (
-                    <XCircle size={13} className="text-red-400 mt-0.5 shrink-0" />
-                  )}
-                  <div className="min-w-0">
-                    <p className="text-xs text-zinc-300 truncate group-hover:text-white transition-colors">
-                      {item.query}
-                    </p>
-                    <p className="text-[10px] text-zinc-600 mt-0.5">
-                      {item.turns ? `${item.turns} turns · ` : ''}{item.persona ? `${item.persona} · ` : ''}
-                      {item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : ''}
-                    </p>
-                  </div>
-                </div>
-              ))
+              history.map((item, i) => {
+                const isActive = selectedHistoryId === item.id;
+                return (
+                  <button
+                    key={item.id || i}
+                    onClick={() => onSelectHistory?.(item)}
+                    className={`w-full flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-colors group text-left ${
+                      isActive
+                        ? 'bg-accent/10 border border-accent/30'
+                        : 'hover:bg-surface-2 border border-transparent'
+                    }`}
+                  >
+                    {item.status === 'completed' ? (
+                      <CheckCircle2 size={13} className="text-emerald-500 mt-0.5 shrink-0" />
+                    ) : (
+                      <XCircle size={13} className="text-red-400 mt-0.5 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <p className={`text-xs truncate transition-colors ${isActive ? 'text-white' : 'text-zinc-300 group-hover:text-white'}`}>
+                        {item.query}
+                      </p>
+                      <p className="text-[10px] text-zinc-600 mt-0.5">
+                        {item.turns ? `${item.turns} turns · ` : ''}
+                        {item.persona ? `${item.persona} · ` : ''}
+                        {item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : ''}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })
             )}
           </div>
         )}

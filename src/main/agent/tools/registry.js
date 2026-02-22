@@ -34,6 +34,24 @@ class ToolRegistry {
     }));
   }
 
+  /**
+   * Register (or refresh) tools from all connected MCP servers.
+   * Removes any previously registered MCP tools first, then re-adds them.
+   * Call this after adding/removing an MCP server.
+   */
+  registerMCPTools(mcpManager) {
+    // Remove existing MCP tools
+    for (const name of this.tools.keys()) {
+      if (name.startsWith('mcp_')) this.tools.delete(name);
+    }
+    // Register fresh set
+    for (const tool of mcpManager.getRegistryTools()) {
+      this.register(tool);
+    }
+    const mcpCount = Array.from(this.tools.keys()).filter((n) => n.startsWith('mcp_')).length;
+    console.log(`[ToolRegistry] Registered ${mcpCount} MCP tools (${this.tools.size} total)`);
+  }
+
   async registerBuiltinTools() {
     for (const tool of FilesystemTools)    this.register(tool);
     for (const tool of AppControlTools)    this.register(tool);
@@ -84,7 +102,7 @@ class ToolRegistry {
   // ---- Anthropic format ----
   _toAnthropicTools(tools) {
     return tools.map((t) => {
-      const schema = TOOL_SCHEMAS[t.name];
+      const schema = TOOL_SCHEMAS[t.name] || t._schema;
       return {
         name: t.name,
         description: schema?.description || t.description,
@@ -100,7 +118,7 @@ class ToolRegistry {
   // ---- OpenAI / DeepSeek format ----
   _toOpenAITools(tools) {
     return tools.map((t) => {
-      const schema = TOOL_SCHEMAS[t.name];
+      const schema = TOOL_SCHEMAS[t.name] || t._schema;
       return {
         type: 'function',
         function: {
@@ -119,7 +137,7 @@ class ToolRegistry {
   // ---- Ollama format (simplified schemas) ----
   _toOllamaTools(tools) {
     return tools.map((t) => {
-      const schema = TOOL_SCHEMAS[t.name];
+      const schema = TOOL_SCHEMAS[t.name] || t._schema;
       return {
         type: 'function',
         function: {
@@ -155,7 +173,7 @@ class ToolRegistry {
   // ---- Google Gemini format ----
   _toGeminiTools(tools) {
     const functionDeclarations = tools.map((t) => {
-      const schema = TOOL_SCHEMAS[t.name];
+      const schema = TOOL_SCHEMAS[t.name] || t._schema;
       return {
         name: t.name,
         description: schema?.description || t.description,

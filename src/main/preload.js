@@ -123,6 +123,12 @@ contextBridge.exposeInMainWorld('api', {
   listApiKeys:  ()                 => ipcRenderer.invoke('keys:list'),
   hasApiKey:    (provider)         => ipcRenderer.invoke('keys:has',    { provider }),
 
+  // ── MCP Servers ────────────────────────────────────────────────────────────
+  listMCPServers:     ()       => ipcRenderer.invoke('mcp:list-servers'),
+  addMCPServer:       (config) => ipcRenderer.invoke('mcp:add-server', config),
+  removeMCPServer:    (id)     => ipcRenderer.invoke('mcp:remove-server', { id }),
+  reconnectMCPServer: (id)     => ipcRenderer.invoke('mcp:reconnect-server', { id }),
+
   // ── Window ─────────────────────────────────────────────────────────────────
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),

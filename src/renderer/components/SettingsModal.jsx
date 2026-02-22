@@ -29,6 +29,12 @@ import {
   Activity,
   Layers,
   Search,
+  Plus,
+  Plug,
+  PlugZap,
+  Terminal,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 
 const api = window.api;
@@ -157,6 +163,24 @@ export default function SettingsModal({ onClose }) {
   const [ollamaLoading, setOllamaLoading] = useState(false);
   const [ollamaError, setOllamaError] = useState(null);
 
+  // MCP server management
+  const [mcpServers, setMCPServers] = useState([]);
+  const [mcpLoading, setMCPLoading] = useState(false);
+  const [showAddMCP, setShowAddMCP] = useState(false);
+  const [mcpForm, setMCPForm] = useState({
+    name: '', transport: 'stdio', command: '', args: '', url: '', env: '',
+  });
+  const [mcpAddError, setMCPAddError] = useState(null);
+
+  const refreshMCPServers = useCallback(async () => {
+    try {
+      const servers = await api?.listMCPServers();
+      setMCPServers(servers || []);
+    } catch (e) {
+      console.error('Failed to list MCP servers:', e);
+    }
+  }, []);
+
   // Load initial data
   useEffect(() => {
     api?.getSettings().then((s) => {
@@ -164,7 +188,8 @@ export default function SettingsModal({ onClose }) {
     });
     api?.getModelCatalog().then(setCatalog).catch(console.error);
     api?.listApiKeys().then(setStoredKeys).catch(console.error);
-  }, []);
+    refreshMCPServers();
+  }, [refreshMCPServers]);
 
   // Auto-discover Ollama models when provider changes to ollama
   useEffect(() => {
@@ -248,10 +273,63 @@ export default function SettingsModal({ onClose }) {
   const requiresKey = providerInfo?.requiresKey;
   const hasKey = !!storedKeys[currentProvider];
 
+  const handleAddMCPServer = async () => {
+    setMCPAddError(null);
+    setMCPLoading(true);
+    try {
+      const config = {
+        name:      mcpForm.name.trim(),
+        transport: mcpForm.transport,
+        command:   mcpForm.transport === 'stdio' ? mcpForm.command.trim() : undefined,
+        args:      mcpForm.transport === 'stdio'
+          ? mcpForm.args.trim().split(/\s+/).filter(Boolean)
+          : undefined,
+        url:       mcpForm.transport === 'sse' ? mcpForm.url.trim() : undefined,
+        env:       mcpForm.env.trim()
+          ? Object.fromEntries(
+              mcpForm.env.trim().split('\n').map((line) => line.split('=').map((s) => s.trim()))
+            )
+          : {},
+      };
+      if (!config.name) { setMCPAddError('Server name is required'); return; }
+      if (config.transport === 'stdio' && !config.command) { setMCPAddError('Command is required for stdio transport'); return; }
+      if (config.transport === 'sse' && !config.url) { setMCPAddError('URL is required for SSE transport'); return; }
+
+      const result = await api?.addMCPServer(config);
+      if (result?.error) { setMCPAddError(result.error); return; }
+
+      setShowAddMCP(false);
+      setMCPForm({ name: '', transport: 'stdio', command: '', args: '', url: '', env: '' });
+      await refreshMCPServers();
+    } catch (err) {
+      setMCPAddError(err.message);
+    } finally {
+      setMCPLoading(false);
+    }
+  };
+
+  const handleRemoveMCPServer = async (id) => {
+    await api?.removeMCPServer(id);
+    await refreshMCPServers();
+  };
+
+  const handleReconnectMCPServer = async (id) => {
+    setMCPLoading(true);
+    try {
+      await api?.reconnectMCPServer(id);
+      await refreshMCPServers();
+    } catch (e) {
+      console.error('Reconnect failed:', e);
+    } finally {
+      setMCPLoading(false);
+    }
+  };
+
   const tabs = [
     { id: 'llm', label: 'LLM & Models', icon: Brain },
     { id: 'agent', label: 'Agent', icon: Zap },
     { id: 'permissions', label: 'Permissions', icon: Shield },
+    { id: 'mcp', label: 'MCP Servers', icon: Plug },
   ];
 
   // Build model list — merge catalog with Ollama-discovered models
@@ -650,6 +728,229 @@ export default function SettingsModal({ onClose }) {
                 </p>
               </div>
             </>
+          )}
+
+          {activeTab === 'mcp' && (
+            <div className="space-y-3">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-zinc-400">
+                    Connect external MCP servers to give the agent new tools and capabilities.
+                  </p>
+                </div>
+                <button
+                  onClick={() => { setShowAddMCP(!showAddMCP); setMCPAddError(null); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 border border-accent/30 text-accent text-xs hover:bg-accent/25 transition-colors"
+                >
+                  <Plus size={12} /> Add Server
+                </button>
+              </div>
+
+              {/* Add server form */}
+              {showAddMCP && (
+                <div className="bg-surface-0/60 border border-surface-3 rounded-xl p-4 space-y-3 animate-fade-in">
+                  <p className="text-xs font-medium text-zinc-300">New MCP Server</p>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-zinc-500 mb-1 block">Name</label>
+                      <input
+                        type="text"
+                        value={mcpForm.name}
+                        onChange={(e) => setMCPForm((f) => ({ ...f, name: e.target.value }))}
+                        className="input-field"
+                        placeholder="My MCP Server"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-500 mb-1 block">Transport</label>
+                      <div className="relative">
+                        <select
+                          value={mcpForm.transport}
+                          onChange={(e) => setMCPForm((f) => ({ ...f, transport: e.target.value }))}
+                          className="input-field appearance-none pr-7"
+                        >
+                          <option value="stdio">stdio (local process)</option>
+                          <option value="sse">SSE (HTTP)</option>
+                        </select>
+                        <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {mcpForm.transport === 'stdio' ? (
+                    <>
+                      <div>
+                        <label className="text-[10px] text-zinc-500 mb-1 block flex items-center gap-1">
+                          <Terminal size={10} /> Command
+                        </label>
+                        <input
+                          type="text"
+                          value={mcpForm.command}
+                          onChange={(e) => setMCPForm((f) => ({ ...f, command: e.target.value }))}
+                          className="input-field font-mono"
+                          placeholder="npx"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-zinc-500 mb-1 block">Args (space-separated)</label>
+                        <input
+                          type="text"
+                          value={mcpForm.args}
+                          onChange={(e) => setMCPForm((f) => ({ ...f, args: e.target.value }))}
+                          className="input-field font-mono"
+                          placeholder="-y @modelcontextprotocol/server-filesystem /path/to/dir"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <label className="text-[10px] text-zinc-500 mb-1 block flex items-center gap-1">
+                        <Wifi size={10} /> Server URL
+                      </label>
+                      <input
+                        type="text"
+                        value={mcpForm.url}
+                        onChange={(e) => setMCPForm((f) => ({ ...f, url: e.target.value }))}
+                        className="input-field font-mono"
+                        placeholder="http://localhost:3001/sse"
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-[10px] text-zinc-500 mb-1 block">
+                      Env vars (one per line: KEY=VALUE)
+                    </label>
+                    <textarea
+                      value={mcpForm.env}
+                      onChange={(e) => setMCPForm((f) => ({ ...f, env: e.target.value }))}
+                      className="input-field font-mono resize-none"
+                      rows={2}
+                      placeholder="API_KEY=abc123"
+                    />
+                  </div>
+
+                  {mcpAddError && (
+                    <div className="flex items-center gap-1.5 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                      <AlertCircle size={12} /> {mcpAddError}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      onClick={() => { setShowAddMCP(false); setMCPAddError(null); }}
+                      className="px-3 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleAddMCPServer}
+                      disabled={mcpLoading}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/20 text-accent border border-accent/30 text-xs hover:bg-accent/30 transition-colors disabled:opacity-50"
+                    >
+                      {mcpLoading
+                        ? <><RefreshCw size={11} className="animate-spin" /> Connecting...</>
+                        : <><PlugZap size={11} /> Connect</>
+                      }
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Server list */}
+              {mcpServers.length === 0 && !showAddMCP ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Plug size={24} className="text-zinc-700 mb-2" />
+                  <p className="text-xs text-zinc-600">No MCP servers configured</p>
+                  <p className="text-[10px] text-zinc-700 mt-0.5">Add a server to extend the agent with custom tools</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {mcpServers.map((server) => (
+                    <div
+                      key={server.id}
+                      className={`rounded-xl p-3 border ${
+                        server.status === 'connected'
+                          ? 'bg-emerald-500/5 border-emerald-500/20'
+                          : 'bg-red-500/5 border-red-500/20'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {server.status === 'connected'
+                            ? <Wifi size={13} className="text-emerald-400 shrink-0" />
+                            : <WifiOff size={13} className="text-red-400 shrink-0" />
+                          }
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-zinc-300 truncate">{server.name}</p>
+                            <p className="text-[10px] text-zinc-600 font-mono truncate">
+                              {server.transport === 'stdio'
+                                ? `${server.command || ''}`
+                                : server.url || ''
+                              }
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {server.status === 'connected' ? (
+                            <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                              {server.toolCount} tool{server.toolCount !== 1 ? 's' : ''}
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleReconnectMCPServer(server.id)}
+                              className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded hover:bg-amber-500/20 transition-colors flex items-center gap-1"
+                            >
+                              <RefreshCw size={9} /> Retry
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleRemoveMCPServer(server.id)}
+                            className="p-1 text-zinc-600 hover:text-red-400 transition-colors rounded"
+                            title="Remove server"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {server.status === 'error' && server.error && (
+                        <p className="text-[10px] text-red-400 mt-1.5 bg-red-500/5 px-2 py-1 rounded">
+                          {server.error}
+                        </p>
+                      )}
+
+                      {server.status === 'connected' && server.tools?.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {server.tools.slice(0, 6).map((t) => (
+                            <span key={t.name} className="text-[9px] text-zinc-600 bg-surface-2 px-1.5 py-0.5 rounded font-mono">
+                              {t.name}
+                            </span>
+                          ))}
+                          {server.tools.length > 6 && (
+                            <span className="text-[9px] text-zinc-700 px-1.5 py-0.5">
+                              +{server.tools.length - 6} more
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Hint */}
+              <div className="bg-surface-0/40 border border-surface-3 rounded-xl p-3 mt-2">
+                <p className="text-[10px] text-zinc-600 leading-relaxed">
+                  <strong className="text-zinc-500">MCP</strong> (Model Context Protocol) lets the agent use tools from external servers.
+                  Try <span className="font-mono text-zinc-500">npx -y @modelcontextprotocol/server-filesystem /path</span> for local filesystem access,
+                  or connect to any MCP-compatible server via SSE.
+                </p>
+              </div>
+            </div>
           )}
         </div>
 

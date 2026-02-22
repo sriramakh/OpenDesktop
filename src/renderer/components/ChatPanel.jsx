@@ -25,7 +25,7 @@ function toolIcon(name = '') {
   return Wrench;
 }
 
-export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, onCancel, activePersona, settings }) {
+export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, onCancel, activePersona, settings, isHistoryReplay }) {
   const [input, setInput] = useState('');
   const messagesEndRef    = useRef(null);
   const inputRef          = useRef(null);
@@ -55,6 +55,14 @@ export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, 
 
   return (
     <div className="flex-1 flex flex-col min-w-0">
+      {/* History replay banner */}
+      {isHistoryReplay && (
+        <div className="shrink-0 flex items-center gap-2 px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-xs text-amber-400">
+          <RefreshCw size={11} className="shrink-0" />
+          <span>Viewing past session — type a message to start a new conversation</span>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
         {messages.length === 0 && (
