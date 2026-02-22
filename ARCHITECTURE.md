@@ -54,12 +54,12 @@ OpenDesktop is a **local-first autonomous AI agent** that runs natively on macOS
 │  │              │    │    ├── ContextAwareness (OS state)      │  │
 │  │              │    │    └── MemorySystem (SQLite FTS5)       │  │
 │  │              │    │                                         │  │
-│  │              │    └── KeyStore (AES-256-GCM)               │  │
+│  │              │    └── KeyStore (AES-256-GCM)                │  │
 │  │              └── PermissionManager (safe/sensitive/danger)  │  │
 │  │                                                            │  │
-│  │  ┌─── Tool Registry (45 tools) ────────────────────────┐  │  │
-│  │  │ Filesystem(11) │ Office(9) │ AppControl(6)          │  │  │
-│  │  │ Browser(5)     │ Search(4) │ System(6) │ LLM(4)    │  │  │
+│  │  ┌─── Tool Registry (46 tools) ────────────────────────┐  │  │
+│  │  │ Filesystem(11) │ Office(10) │ AppControl(6)         │  │  │
+│  │  │ Browser(5)     │ Search(4) │ System(6) │ LLM(4)     │  │  │
 │  │  └─────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
@@ -108,7 +108,7 @@ app.whenReady()
       → new AgentCore({ memory, permissions, context, toolRegistry, keyStore, emit })
       → memory.initialize()                // Create/open SQLite DB
       → keyStore.initialize()              // Decrypt .keystore.enc
-      → toolRegistry.registerBuiltinTools() // Load all 45 tools
+      → toolRegistry.registerBuiltinTools() // Load all 46 tools
   → createWindow()                          // BrowserWindow with vibrancy
   → setupIPC()                              // Register all IPC handlers
 ```
@@ -437,17 +437,18 @@ Other: `strings` command fallback
 **File organization categories (EXT_CATEGORIES):**
 Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, Applications, Fonts — covering 80+ extensions.
 
-#### Office Documents (9 tools) — `office.js`
+#### Office Documents (10 tools) — `office.js`
 
 | Tool | Permission | Description |
 |------|-----------|-------------|
 | `office_read_pdf` | safe | PDF text extraction with page range, password support, and automatic OCR for scanned PDFs |
 | `office_read_docx` | safe | Word document extraction via mammoth (text or HTML) |
 | `office_write_docx` | sensitive | Create DOCX from markdown-like content (headings, bullets, numbered lists) via Office Open XML |
-| `office_read_xlsx` | safe | Excel read via SheetJS (all sheets, formulas, JSON output) |
-| `office_write_xlsx` | sensitive | Excel write: set cells, formulas, ranges, add sheets, auto-sum |
-| `office_chart_xlsx` | sensitive | Add charts/pivot tables via ExcelJS |
+| `office_read_xlsx` | safe | Excel read via SheetJS — summaryOnly mode, merged cells/column widths metadata, row×col dimensions |
+| `office_write_xlsx` | sensitive | Excel write via ExcelJS — full formatting, 12 operation types, financial color coding, autoFormat mode |
+| `office_chart_xlsx` | sensitive | Dynamic pivot/summary tables using SUMIF/COUNTIF/AVERAGEIF formulas (auto-recalculate) |
 | `office_read_pptx` | safe | PowerPoint extraction via JSZip (titles, body, speaker notes) |
+| `office_write_pptx` | write | PowerPoint creation via pptxgenjs — 4 themes, 5 slide layouts, template color extraction, OOXML post-fix |
 | `office_read_csv` | safe | CSV/TSV with auto-delimiter detection, pagination, JSON output |
 | `office_write_csv` | sensitive | Write/append CSV with custom delimiter |
 
@@ -463,6 +464,25 @@ Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, A
 8. OCR: PyMuPDF renders pages → tesseract → JSON results
 9. Fallback: return sparse text with install instructions
 ```
+
+**Excel write pipeline (`office_write_xlsx` — ExcelJS-based):**
+- `sheetData` bulk mode: 2D arrays → cells, `=` prefix → formulas, `autoFormat` → dark blue headers, alternating rows, frozen panes, auto-sized columns
+- `operations` fine-grained mode: 12 types — `set_cell`, `set_range`, `add_sheet`, `auto_sum`, `format_range`, `freeze_panes`, `set_column_width`, `set_row_height`, `merge_cells`, `create_table`, `auto_fit_columns`, `add_comment`
+- Financial color coding: `financial_type` on `set_cell` ops — input (blue), formula (black), cross_sheet (green), external (red), assumption (yellow bg)
+- `create_table`: styles header + data rows with alternating fills + auto-filter
+
+**Pivot/summary table (`office_chart_xlsx`):**
+- Reads source data, extracts unique keys from `groupByCol`
+- Writes SUMIF/COUNTIF/AVERAGEIF/MAXIFS/MINIFS formulas (dynamic — recalculate when source changes)
+- Professional styling: title row, column headers, alternating data rows, total row
+- Frozen header rows, auto-sized columns
+
+**PPTX writer (`office_write_pptx` — pptxgenjs):**
+- 4 built-in themes: professional (navy/white), dark (slate/charcoal), minimal (black/white), vibrant (purple/white)
+- Template color extraction: reads `ppt/theme/themeN.xml` from a user-provided `.pptx` to extract dk1/lt1/accent1/accent2 colors
+- 5 slide layouts: title (cover/closing), content (bullet list), two-column (comparison), table (data grid), section (chapter divider)
+- Quality enforcement: talking headers (complete sentences), 4–6 bullet points per content slide, speaker notes
+- OOXML post-processing: strips orphaned `[Content_Types].xml` entries from pptxgenjs v4 bug
 
 **DOCX writer:** Builds valid Office Open XML (`.docx` is a ZIP) using JSZip:
 - `[Content_Types].xml`, `_rels/.rels`, `word/document.xml`, `word/styles.xml`, `word/numbering.xml`
@@ -888,9 +908,9 @@ OpenDesktop/
 │       │
 │       └── tools/                  # ═══ TOOL IMPLEMENTATIONS ═══
 │           ├── registry.js         # ToolRegistry: registration + provider-specific schemas
-│           ├── tool-schemas.js     # JSON Schema definitions for all 45 tools
+│           ├── tool-schemas.js     # JSON Schema definitions for all 46 tools
 │           ├── filesystem.js       # 11 tools: read, write, edit, list, search, move, organize...
-│           ├── office.js           # 9 tools: PDF (with OCR), DOCX, XLSX, PPTX, CSV
+│           ├── office.js           # 10 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), PPTX (pptxgenjs), CSV
 │           ├── app-control.js      # 6 tools: open (fuzzy), find, list, focus, quit, screenshot
 │           ├── browser.js          # 5 tools: navigate, click, type, key, submit_form
 │           ├── search-fetch.js     # 4 tools: web_search, web_fetch, web_fetch_json, web_download

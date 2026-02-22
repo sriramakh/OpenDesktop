@@ -7,6 +7,7 @@
  *   - xlsx (SheetJS) → Excel read/write/formulas
  *   - exceljs     → Excel with charts, styling, pivot tables
  *   - jszip       → PPTX XML extraction
+ *   - pptxgenjs   → PPTX creation (beautiful, template-aware)
  *   - csv (built-in) → CSV parsing/writing
  */
 
@@ -352,61 +353,71 @@ const OfficeTools = [
   {
     name: 'office_read_xlsx',
     category: 'office',
-    description: 'Read an Excel workbook (.xlsx or .xls). Returns all sheets with their data in a structured format. Set includeFormulas=true to see cell formulas. Set sheetName to read only one sheet. Returns up to maxRows rows per sheet.',
-    params: ['path', 'sheetName', 'maxRows', 'includeFormulas', 'outputFormat'],
+    description: 'Read an Excel workbook (.xlsx/.xls). Returns sheet data, formulas, metadata (merged cells, column widths). Use summaryOnly for a fast overview of large files.',
+    params: ['path', 'sheetName', 'maxRows', 'includeFormulas', 'outputFormat', 'summaryOnly'],
     permissionLevel: 'safe',
-    async execute({ path: filePath, sheetName, maxRows = 500, includeFormulas = false, outputFormat = 'text' }) {
+    async execute({ path: filePath, sheetName, maxRows = 500, includeFormulas = false, outputFormat = 'text', summaryOnly = false }) {
       if (!filePath) throw new Error('path is required');
       const resolved = resolvePath(filePath);
       const XLSX = require('xlsx');
 
-      const readOpts = { sheetRows: maxRows };
-      if (includeFormulas) readOpts.cellFormula = true;
-
+      // summaryOnly: no row limit (need full !ref for accurate row count); data mode: cap at maxRows
+      const readOpts = summaryOnly ? { cellFormula: false } : { sheetRows: maxRows, cellFormula: true };
       const wb = XLSX.readFile(resolved, readOpts);
 
       const sheetNames = sheetName
-        ? (wb.SheetNames.includes(sheetName) ? [sheetName] : [])
+        ? (wb.SheetNames.includes(sheetName) ? [sheetName] : (() => { throw new Error(`Sheet "${sheetName}" not found. Available: ${wb.SheetNames.join(', ')}`); })())
         : wb.SheetNames;
 
-      if (sheetNames.length === 0) {
-        throw new Error(`Sheet "${sheetName}" not found. Available sheets: ${wb.SheetNames.join(', ')}`);
-      }
-
-      const output = [`[Excel Workbook: ${path.basename(resolved)}]`];
-      output.push(`Sheets: ${wb.SheetNames.join(', ')}\n`);
+      const stat = await fsp.stat(resolved);
+      const output = [`[Excel Workbook: ${path.basename(resolved)} — ${(stat.size / 1024).toFixed(1)} KB]`];
+      output.push(`Sheets (${wb.SheetNames.length}): ${wb.SheetNames.join(', ')}`);
 
       for (const name of sheetNames) {
         const ws = wb.Sheets[name];
         const range = ws['!ref'];
-        output.push(`\n=== Sheet: ${name} (range: ${range || 'empty'}) ===`);
+        if (!range) { output.push(`\n=== Sheet: ${name} — (empty) ===`); continue; }
 
-        if (!range) { output.push('(empty sheet)'); continue; }
+        const decoded = XLSX.utils.decode_range(range);
+        const totalRows = decoded.e.r + 1;
+        const totalCols = decoded.e.c + 1;
+        const merges = (ws['!merges'] || []).map((m) => XLSX.utils.encode_range(m));
+        const colWidths = (ws['!cols'] || []).map((c, i) =>
+          c?.wch ? `${XLSX.utils.encode_col(i)}:${c.wch}` : null
+        ).filter(Boolean);
+
+        output.push(`\n=== Sheet: ${name} (${totalRows} rows × ${totalCols} cols) ===`);
+        if (merges.length) output.push(`Merged cells: ${merges.join(', ')}`);
+        if (colWidths.length) output.push(`Column widths: ${colWidths.join(', ')}`);
+
+        if (summaryOnly) {
+          // Just show headers (first row) + row count
+          const headerRow = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false })[0] || [];
+          output.push(`Headers: ${headerRow.join(' | ')}`);
+          output.push(`Data rows: ${Math.max(0, totalRows - 1)}`);
+          continue;
+        }
 
         if (outputFormat === 'json') {
           const json = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
           output.push(JSON.stringify(json.slice(0, maxRows)));
-        } else if (includeFormulas) {
-          // Show both values and formulas
+        } else {
           const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
-          const formulaMap = {};
-          for (const [addr, cell] of Object.entries(ws)) {
-            if (addr.startsWith('!')) continue;
-            if (cell.f) formulaMap[addr] = cell.f;
-          }
-          for (let i = 0; i < Math.min(rows.length, maxRows); i++) {
-            const rowStr = rows[i].join('\t');
-            output.push(rowStr);
-          }
-          if (Object.keys(formulaMap).length > 0) {
-            output.push('\n--- Formulas ---');
-            for (const [addr, formula] of Object.entries(formulaMap)) {
-              output.push(`${addr}: =${formula}`);
+          const displayRows = rows.slice(0, maxRows);
+          output.push(displayRows.map((r) => r.join('\t')).join('\n'));
+
+          if (includeFormulas) {
+            const formulaMap = {};
+            for (const [addr, cell] of Object.entries(ws)) {
+              if (!addr.startsWith('!') && cell.f) formulaMap[addr] = cell.f;
+            }
+            if (Object.keys(formulaMap).length) {
+              output.push('\n--- Formulas ---');
+              for (const [addr, f] of Object.entries(formulaMap)) output.push(`${addr}: =${f}`);
             }
           }
-        } else {
-          const csv = XLSX.utils.sheet_to_csv(ws);
-          output.push(csv.split('\n').slice(0, maxRows).join('\n'));
+
+          if (totalRows > maxRows) output.push(`\n... ${totalRows - maxRows} more rows not shown (use maxRows to see more)`);
         }
       }
 
@@ -418,193 +429,443 @@ const OfficeTools = [
   {
     name: 'office_write_xlsx',
     category: 'office',
-    description: 'Write or modify an Excel workbook. Accepts operations: set cell values/formulas, create new sheets, add tables. Pass operations as a JSON array. Supports Excel formulas (=SUM(A1:A10), =VLOOKUP, etc.). Creates the file if it does not exist.',
-    params: ['path', 'operations', 'sheetData'],
+    description: 'EXCEL SPREADSHEETS ONLY — NOT for PowerPoint or presentations (use office_write_pptx for those). Creates or modifies .xlsx workbooks with full formatting. Use sheetData for bulk data, operations for fine-grained control: set_cell (values/formulas/financial coloring), format_range, freeze_panes, set_column_width, merge_cells, create_table, auto_fit_columns. ALWAYS use Excel formulas instead of hardcoded values.',
+    params: ['path', 'sheetData', 'operations', 'autoFormat'],
     permissionLevel: 'sensitive',
-    async execute({ path: filePath, operations, sheetData }) {
+    async execute({ path: filePath, operations, sheetData, autoFormat = false }) {
       if (!filePath) throw new Error('path is required');
       const resolved = resolvePath(filePath);
-      const XLSX = require('xlsx');
+      const ExcelJS = require('exceljs');
 
-      // Load existing or create new
-      let wb;
+      // Financial model color coding (industry standard)
+      // Blue=inputs users change, Black=formulas, Green=cross-sheet links, Red=external, Yellow bg=assumptions
+      const FIN_COLOR = {
+        input:       'FF0000FF',  // blue
+        formula:     'FF000000',  // black
+        cross_sheet: 'FF008000',  // green
+        external:    'FFFF0000',  // red
+        assumption:  'FF000000',  // black text + yellow fill
+      };
+
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'OpenDesktop';
+      wb.modified = new Date();
+
       const exists = await fsp.stat(resolved).catch(() => null);
       if (exists) {
-        wb = XLSX.readFile(resolved, { cellFormula: true });
-      } else {
-        wb = XLSX.utils.book_new();
+        try { await wb.xlsx.readFile(resolved); } catch { /* start fresh */ }
       }
 
-      // sheetData: shorthand to write whole sheets at once
-      // Format: { "Sheet1": [[row1col1, row1col2], [row2col1, ...]], ... }
+      const getSheet = (name) =>
+        name ? (wb.getWorksheet(name) || wb.addWorksheet(name))
+              : (wb.worksheets[0] || wb.addWorksheet('Sheet1'));
+
+      // Apply a style object to a single cell
+      const applyStyle = (cell, s) => {
+        if (!s) return;
+        if (s.bold != null || s.italic != null || s.fontSize != null || s.fontColor != null || s.fontName != null) {
+          cell.font = {
+            bold:   s.bold   ?? cell.font?.bold,
+            italic: s.italic ?? cell.font?.italic,
+            size:   s.fontSize ?? cell.font?.size ?? 11,
+            color:  s.fontColor ? { argb: 'FF' + s.fontColor.replace('#', '') } : cell.font?.color,
+            name:   s.fontName ?? cell.font?.name ?? 'Calibri',
+          };
+        }
+        if (s.bgColor) {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + s.bgColor.replace('#', '') } };
+        }
+        if (s.numFormat) cell.numFmt = s.numFormat;
+        if (s.align || s.valign || s.wrapText != null) {
+          cell.alignment = {
+            horizontal: s.align   ?? cell.alignment?.horizontal,
+            vertical:   s.valign  ?? cell.alignment?.vertical ?? 'middle',
+            wrapText:   s.wrapText ?? cell.alignment?.wrapText,
+          };
+        }
+        if (s.border) {
+          const b = s.border === true ? { style: 'thin' } : { style: s.border };
+          cell.border = { top: b, bottom: b, left: b, right: b };
+        }
+      };
+
+      // Set a cell's value (string starting with = becomes a formula)
+      const setCellValue = (cell, val) => {
+        if (typeof val === 'string' && val.startsWith('=')) {
+          cell.value = { formula: val.slice(1), result: 0 };
+        } else {
+          cell.value = val ?? null;
+        }
+      };
+
+      // ── sheetData bulk write ───────────────────────────────────────────────
       if (sheetData && typeof sheetData === 'object') {
         for (const [name, data] of Object.entries(sheetData)) {
-          const aoa = Array.isArray(data) ? data : [];
-          const ws = XLSX.utils.aoa_to_sheet(aoa);
-          if (wb.SheetNames.includes(name)) {
-            wb.Sheets[name] = ws;
-          } else {
-            XLSX.utils.book_append_sheet(wb, ws, name);
+          const sheet = getSheet(name);
+          const rows = Array.isArray(data) ? data : [];
+
+          for (let ri = 0; ri < rows.length; ri++) {
+            const row = rows[ri];
+            for (let ci = 0; ci < row.length; ci++) {
+              const cell = sheet.getCell(ri + 1, ci + 1);
+              setCellValue(cell, row[ci]);
+
+              if (autoFormat) {
+                if (ri === 0) {
+                  // Header row: dark blue bg, white bold text, centered
+                  cell.font = { bold: true, name: 'Calibri', size: 11, color: { argb: 'FFFFFFFF' } };
+                  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } };
+                  cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                  cell.border = { bottom: { style: 'medium', color: { argb: 'FF2E86AB' } } };
+                } else if (ri % 2 === 0) {
+                  // Alternating row: light blue tint
+                  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBF4F9' } };
+                }
+              }
+            }
+          }
+
+          if (autoFormat && rows.length > 0) {
+            sheet.getRow(1).height = 22;
+            // Freeze header row
+            sheet.views = [{ state: 'frozen', ySplit: 1, xSplit: 0 }];
+            // Auto-size columns (sample first 100 rows)
+            const colWidths = {};
+            for (let ri = 0; ri < Math.min(rows.length, 100); ri++) {
+              for (let ci = 0; ci < rows[ri].length; ci++) {
+                const len = String(rows[ri][ci] ?? '').length;
+                colWidths[ci] = Math.max(colWidths[ci] || 8, Math.min(len + 4, 45));
+              }
+            }
+            for (const [ci, w] of Object.entries(colWidths)) {
+              sheet.getColumn(Number(ci) + 1).width = w;
+            }
           }
         }
       }
 
-      // operations: fine-grained cell operations
-      // Each op: { type: "set_cell", sheet, cell, value, formula }
-      //          { type: "set_range", sheet, range, data }
-      //          { type: "add_sheet", name, data }
-      //          { type: "auto_sum", sheet, sourceRange, targetCell }
+      // ── operations ────────────────────────────────────────────────────────
       if (Array.isArray(operations)) {
         for (const op of operations) {
-          const sheetName = op.sheet || wb.SheetNames[0] || 'Sheet1';
+          const sheet = getSheet(op.sheet);
 
-          if (!wb.SheetNames.includes(sheetName)) {
-            const newWs = {};
-            wb.SheetNames.push(sheetName);
-            wb.Sheets[sheetName] = newWs;
-          }
+          switch (op.type) {
 
-          const ws = wb.Sheets[sheetName];
-
-          if (op.type === 'set_cell') {
-            const cell = op.cell; // e.g. "A1"
-            if (!cell) continue;
-            if (op.formula) {
-              ws[cell] = { t: 'n', f: op.formula.replace(/^=/, ''), v: 0 };
-            } else {
-              const v = op.value;
-              const t = typeof v === 'number' ? 'n' : (typeof v === 'boolean' ? 'b' : 's');
-              ws[cell] = { t, v };
-            }
-            // Update sheet range
-            updateSheetRange(ws, cell);
-
-          } else if (op.type === 'set_range') {
-            // data: 2D array [[r1c1, r1c2], [r2c1, r2c2]]
-            const startCell = op.range || 'A1';
-            const aoa = op.data || [];
-            const tmpWs = XLSX.utils.aoa_to_sheet(aoa, { origin: startCell });
-            for (const [addr, cell] of Object.entries(tmpWs)) {
-              if (!addr.startsWith('!')) ws[addr] = cell;
-            }
-            if (tmpWs['!ref']) ws['!ref'] = extendRange(ws['!ref'], tmpWs['!ref']);
-
-          } else if (op.type === 'add_sheet') {
-            const newName = op.name || `Sheet${wb.SheetNames.length + 1}`;
-            const newWs = op.data
-              ? XLSX.utils.aoa_to_sheet(op.data)
-              : {};
-            if (!wb.SheetNames.includes(newName)) {
-              XLSX.utils.book_append_sheet(wb, newWs, newName);
+            case 'set_cell': {
+              if (!op.cell) break;
+              const cell = sheet.getCell(op.cell);
+              if (op.formula) {
+                cell.value = { formula: op.formula.replace(/^=/, ''), result: op.result ?? 0 };
+              } else if (op.value !== undefined) {
+                cell.value = op.value;
+              }
+              // Financial color coding
+              if (op.financial_type && FIN_COLOR[op.financial_type]) {
+                cell.font = { ...(cell.font || {}), color: { argb: FIN_COLOR[op.financial_type] }, name: 'Calibri', size: cell.font?.size ?? 11 };
+                if (op.financial_type === 'assumption') {
+                  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+                }
+              }
+              if (op.style) applyStyle(cell, op.style);
+              break;
             }
 
-          } else if (op.type === 'auto_sum') {
-            // Create a SUM formula
-            const target = op.targetCell;
-            const src = op.sourceRange;
-            if (target && src) {
-              ws[target] = { t: 'n', f: `SUM(${src})`, v: 0 };
-              updateSheetRange(ws, target);
+            case 'set_range': {
+              const data2d = op.data || [];
+              const anchor = sheet.getCell(op.range || 'A1');
+              const startRow = anchor.row, startCol = anchor.col;
+              for (let ri = 0; ri < data2d.length; ri++) {
+                for (let ci = 0; ci < data2d[ri].length; ci++) {
+                  setCellValue(sheet.getCell(startRow + ri, startCol + ci), data2d[ri][ci]);
+                }
+              }
+              break;
+            }
+
+            case 'add_sheet': {
+              const newName = op.name || `Sheet${wb.worksheets.length + 1}`;
+              if (!wb.getWorksheet(newName)) {
+                const ns = wb.addWorksheet(newName);
+                if (Array.isArray(op.data)) {
+                  op.data.forEach((row, ri) =>
+                    row.forEach((val, ci) => setCellValue(ns.getCell(ri + 1, ci + 1), val))
+                  );
+                }
+              }
+              break;
+            }
+
+            case 'auto_sum': {
+              if (!op.targetCell || !op.sourceRange) break;
+              sheet.getCell(op.targetCell).value = { formula: `SUM(${op.sourceRange})`, result: 0 };
+              if (op.style) applyStyle(sheet.getCell(op.targetCell), op.style);
+              break;
+            }
+
+            case 'format_range': {
+              if (!op.range) break;
+              const rangeStr = op.range.includes(':') ? op.range : `${op.range}:${op.range}`;
+              const [s, e] = rangeStr.split(':');
+              const sc = sheet.getCell(s), ec = sheet.getCell(e);
+              for (let r = sc.row; r <= ec.row; r++) {
+                for (let c = sc.col; c <= ec.col; c++) {
+                  applyStyle(sheet.getCell(r, c), op.style || op);
+                }
+              }
+              break;
+            }
+
+            case 'freeze_panes': {
+              sheet.views = [{ state: 'frozen', ySplit: op.row ?? 1, xSplit: op.col ?? 0 }];
+              break;
+            }
+
+            case 'set_column_width': {
+              const defs = op.cols || (op.col ? [{ col: op.col, width: op.width }] : []);
+              for (const { col, width } of defs) {
+                sheet.getColumn(col).width = width;
+              }
+              break;
+            }
+
+            case 'set_row_height': {
+              const rowNum = typeof op.row === 'number' ? op.row : sheet.getCell(op.cell || 'A1').row;
+              sheet.getRow(rowNum).height = op.height ?? 20;
+              break;
+            }
+
+            case 'merge_cells': {
+              if (!op.range) break;
+              try { sheet.mergeCells(op.range); } catch { /* ignore if already merged */ }
+              break;
+            }
+
+            case 'create_table': {
+              // Styles header + data rows; adds auto-filter on header row
+              if (!op.range) break;
+              const [ts, te] = op.range.split(':');
+              const sc = sheet.getCell(ts), ec = sheet.getCell(te);
+              // Header row
+              for (let c = sc.col; c <= ec.col; c++) {
+                const cell = sheet.getCell(sc.row, c);
+                cell.font = { bold: true, name: 'Calibri', size: 11, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } };
+                cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                cell.border = { bottom: { style: 'medium', color: { argb: 'FF2E86AB' } } };
+              }
+              // Data rows — alternating fill + Calibri font
+              for (let r = sc.row + 1; r <= ec.row; r++) {
+                for (let c = sc.col; c <= ec.col; c++) {
+                  const cell = sheet.getCell(r, c);
+                  cell.font = { name: 'Calibri', size: 11 };
+                  if ((r - sc.row) % 2 === 0) {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD6E4F0' } };
+                  }
+                  cell.border = { bottom: { style: 'hair', color: { argb: 'FFBDD7EE' } } };
+                }
+              }
+              // Auto-filter on header
+              sheet.autoFilter = { from: { row: sc.row, column: sc.col }, to: { row: sc.row, column: ec.col } };
+              break;
+            }
+
+            case 'auto_fit_columns': {
+              const maxRow = Math.min(sheet.rowCount || 100, 100);
+              const colWidths = {};
+              for (let r = 1; r <= maxRow; r++) {
+                sheet.getRow(r).eachCell({ includeEmpty: false }, (cell, colNum) => {
+                  const len = String(cell.text || cell.value || '').length;
+                  colWidths[colNum] = Math.max(colWidths[colNum] || 8, Math.min(len + 4, 50));
+                });
+              }
+              for (const [colNum, w] of Object.entries(colWidths)) {
+                sheet.getColumn(Number(colNum)).width = w;
+              }
+              break;
+            }
+
+            case 'add_comment': {
+              if (!op.cell || !op.comment) break;
+              try {
+                sheet.getCell(op.cell).note = {
+                  texts: [{ font: { name: 'Calibri', size: 9 }, text: String(op.comment) }],
+                };
+              } catch { /* ignore */ }
+              break;
             }
           }
         }
       }
 
       await fsp.mkdir(path.dirname(resolved), { recursive: true });
-      XLSX.writeFile(wb, resolved);
+      await wb.xlsx.writeFile(resolved);
 
       const stat = await fsp.stat(resolved);
-      return `Saved Excel workbook: ${resolved} (${(stat.size / 1024).toFixed(1)} KB, ${wb.SheetNames.length} sheet(s): ${wb.SheetNames.join(', ')})`;
+      const sheets = wb.worksheets.map((s) => s.name);
+      return `Saved Excel workbook: ${resolved} (${(stat.size / 1024).toFixed(1)} KB, ${sheets.length} sheet(s): ${sheets.join(', ')})`;
     },
   },
 
-  // ── XLSX chart ────────────────────────────────────────────────────────────
+  // ── XLSX chart / pivot ────────────────────────────────────────────────────
   {
     name: 'office_chart_xlsx',
     category: 'office',
-    description: 'Add a chart or pivot table to an Excel workbook using ExcelJS. Supports bar, line, pie, scatter chart types and auto pivot table generation from data range. Creates a new sheet with the chart/pivot if outputSheet is specified.',
-    params: ['path', 'chartType', 'dataSheet', 'dataRange', 'outputSheet', 'title', 'pivotConfig'],
+    description: 'Add a professionally-styled pivot/summary table to an Excel workbook. Aggregates source data using SUMIF/COUNTIF/AVERAGEIF formulas (dynamic — updates when source data changes). Writes to a new or existing sheet. Use office_write_xlsx for chart data, then open in Excel to insert a chart.',
+    params: ['path', 'dataSheet', 'dataRange', 'outputSheet', 'title', 'pivotConfig'],
     permissionLevel: 'sensitive',
-    async execute({ path: filePath, chartType = 'bar', dataSheet, dataRange, outputSheet, title, pivotConfig }) {
+    async execute({ path: filePath, dataSheet, dataRange, outputSheet, title, pivotConfig }) {
       if (!filePath) throw new Error('path is required');
       const resolved = resolvePath(filePath);
       const ExcelJS = require('exceljs');
 
       const wb = new ExcelJS.Workbook();
-
       const exists = await fsp.stat(resolved).catch(() => null);
       if (exists) {
-        await wb.xlsx.readFile(resolved);
+        try { await wb.xlsx.readFile(resolved); } catch { /* start fresh */ }
+      }
+      if (!wb.worksheets.length) wb.addWorksheet('Sheet1');
+
+      const srcSheetName = dataSheet || wb.worksheets[0].name;
+      const srcSheet = wb.getWorksheet(srcSheetName);
+      if (!srcSheet) throw new Error(`Source sheet "${srcSheetName}" not found. Available: ${wb.worksheets.map((s) => s.name).join(', ')}`);
+
+      const outName = outputSheet || 'Summary';
+      let outSheet = wb.getWorksheet(outName);
+      if (!outSheet) outSheet = wb.addWorksheet(outName);
+
+      const { groupByCol = 1, valueCol = 2, aggregation = 'SUM', labelCol } = pivotConfig || {};
+
+      // ── Determine source range ─────────────────────────────────────────────
+      let srcStart = 1, srcEnd = srcSheet.rowCount || 1000;
+      if (dataRange) {
+        const [s, e] = dataRange.split(':');
+        if (s) srcStart = srcSheet.getCell(s).row;
+        if (e) srcEnd   = srcSheet.getCell(e).row;
       }
 
-      let chartSheet;
-      const sheetName = outputSheet || 'Chart';
+      // ── Read unique keys from groupByCol (skip header row) ────────────────
+      const keys = new Set();
+      srcSheet.eachRow((row, ri) => {
+        if (ri <= srcStart) return; // skip header
+        const v = row.getCell(groupByCol).value;
+        if (v != null && v !== '') keys.add(String(v));
+      });
+      const uniqueKeys = [...keys].sort();
 
-      if (wb.getWorksheet(sheetName)) {
-        chartSheet = wb.getWorksheet(sheetName);
+      // ── Column letter helpers ─────────────────────────────────────────────
+      const colLetter = (n) => {
+        let s = '';
+        for (let i = n; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(((i - 1) % 26) + 65) + s;
+        return s;
+      };
+      const groupCol = colLetter(groupByCol);
+      const valCol   = colLetter(valueCol);
+      const labelColLetter = labelCol ? colLetter(labelCol) : null;
+
+      // Source range for formulas (row 2 to end of data)
+      const formulaSrcRange = `${srcSheetName}!$${groupCol}$${srcStart + 1}:$${groupCol}$${srcEnd}`;
+      const formulaValRange = `${srcSheetName}!$${valCol}$${srcStart + 1}:$${valCol}$${srcEnd}`;
+
+      // ── Write output sheet ─────────────────────────────────────────────────
+      // Header row
+      const titleText = title || `${aggregation} of ${valCol} by ${groupCol}`;
+      outSheet.getCell('A1').value = titleText;
+      outSheet.mergeCells('A1:C1');
+
+      // Column headers at row 2
+      outSheet.getCell('A2').value = 'Category';
+      outSheet.getCell('B2').value = `${aggregation} (${valCol})`;
+      if (labelColLetter) outSheet.getCell('C2').value = 'Label';
+
+      // Data rows: one per unique key, using formula-based aggregation
+      let dataStart = 3;
+      uniqueKeys.forEach((key, i) => {
+        const r = dataStart + i;
+        outSheet.getCell(r, 1).value = key;
+
+        let formula;
+        switch (aggregation.toUpperCase()) {
+          case 'COUNT':
+            formula = `COUNTIF(${formulaSrcRange},"${key}")`;
+            break;
+          case 'AVG':
+          case 'AVERAGE':
+            formula = `AVERAGEIF(${formulaSrcRange},"${key}",${formulaValRange})`;
+            break;
+          case 'MAX':
+            formula = `MAXIFS(${formulaValRange},${formulaSrcRange},"${key}")`;
+            break;
+          case 'MIN':
+            formula = `MINIFS(${formulaValRange},${formulaSrcRange},"${key}")`;
+            break;
+          default: // SUM
+            formula = `SUMIF(${formulaSrcRange},"${key}",${formulaValRange})`;
+        }
+        outSheet.getCell(r, 2).value = { formula, result: 0 };
+        outSheet.getCell(r, 2).numFmt = '#,##0.00';
+      });
+
+      // Total row
+      const totalRow = dataStart + uniqueKeys.length;
+      outSheet.getCell(totalRow, 1).value = 'TOTAL';
+      if (aggregation.toUpperCase() !== 'COUNT') {
+        outSheet.getCell(totalRow, 2).value = { formula: `SUM(B${dataStart}:B${totalRow - 1})`, result: 0 };
       } else {
-        chartSheet = wb.addWorksheet(sheetName);
+        outSheet.getCell(totalRow, 2).value = { formula: `SUM(B${dataStart}:B${totalRow - 1})`, result: 0 };
+      }
+      outSheet.getCell(totalRow, 2).numFmt = '#,##0.00';
+
+      // ── Styling ────────────────────────────────────────────────────────────
+      // Title
+      const titleCell = outSheet.getCell('A1');
+      titleCell.font = { bold: true, size: 13, name: 'Calibri', color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      outSheet.getRow(1).height = 24;
+
+      // Column headers
+      ['A2', 'B2', 'C2'].forEach((addr) => {
+        const c = outSheet.getCell(addr);
+        if (!c.value) return;
+        c.font = { bold: true, name: 'Calibri', size: 11, color: { argb: 'FFFFFFFF' } };
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E86AB' } };
+        c.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+      outSheet.getRow(2).height = 20;
+
+      // Data rows — alternating fill
+      for (let i = 0; i < uniqueKeys.length; i++) {
+        const r = dataStart + i;
+        for (let c = 1; c <= 2; c++) {
+          const cell = outSheet.getCell(r, c);
+          cell.font = { name: 'Calibri', size: 11 };
+          if (i % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBF4F9' } };
+          cell.border = { bottom: { style: 'hair', color: { argb: 'FFBDD7EE' } } };
+        }
+        outSheet.getCell(dataStart + i, 1).alignment = { horizontal: 'left', vertical: 'middle' };
+        outSheet.getCell(dataStart + i, 2).alignment = { horizontal: 'right', vertical: 'middle' };
       }
 
-      // If pivotConfig: generate a pivot table manually using formulas
-      if (pivotConfig) {
-        const srcSheet = wb.getWorksheet(dataSheet || wb.worksheets[0]?.name);
-        if (!srcSheet) throw new Error(`Source sheet "${dataSheet}" not found`);
-
-        // Simple pivot: group by column, aggregate another column
-        const { groupByCol = 1, valueCol = 2, aggregation = 'SUM' } = pivotConfig;
-
-        // Read source data
-        const rows = [];
-        srcSheet.eachRow((row, i) => {
-          if (i > 1) rows.push({ key: row.getCell(groupByCol).value, val: row.getCell(valueCol).value });
-        });
-
-        // Aggregate
-        const pivotMap = {};
-        for (const { key, val } of rows) {
-          const k = String(key || '');
-          pivotMap[k] = (pivotMap[k] || 0) + (Number(val) || 0);
-        }
-
-        // Write pivot data to chart sheet
-        chartSheet.getCell('A1').value = 'Category';
-        chartSheet.getCell('B1').value = 'Value';
-        let pivotRow = 2;
-        for (const [k, v] of Object.entries(pivotMap)) {
-          chartSheet.getCell(`A${pivotRow}`).value = k;
-          chartSheet.getCell(`B${pivotRow}`).value = v;
-          pivotRow++;
-        }
-
-        // Style headers
-        ['A1', 'B1'].forEach((cell) => {
-          chartSheet.getCell(cell).font = { bold: true };
-          chartSheet.getCell(cell).fill = {
-            type: 'pattern', pattern: 'solid',
-            fgColor: { argb: 'FFD9E1F2' },
-          };
-        });
-        chartSheet.columns = [{ width: 25 }, { width: 15 }];
+      // Total row styling
+      for (let c = 1; c <= 2; c++) {
+        const cell = outSheet.getCell(totalRow, c);
+        cell.font = { bold: true, name: 'Calibri', size: 11 };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } };
+        cell.font = { bold: true, name: 'Calibri', size: 11, color: { argb: 'FFFFFFFF' } };
+        cell.border = { top: { style: 'medium', color: { argb: 'FF2E86AB' } } };
       }
 
-      // Add chart using ExcelJS chart API
-      if (chartType && dataRange) {
-        const srcSheetName = dataSheet || wb.worksheets[0]?.name;
-        const plotArea = chartSheet.addChart?.({
-          type: chartType,
-          title: { name: title || 'Chart' },
-        });
+      // Column widths
+      outSheet.getColumn(1).width = 28;
+      outSheet.getColumn(2).width = 18;
+      outSheet.getColumn(3).width = 20;
 
-        if (plotArea) {
-          // ExcelJS chart support is basic — set reference
-          chartSheet.addChart(plotArea);
-        }
-      }
+      // Freeze header rows
+      outSheet.views = [{ state: 'frozen', ySplit: 2, xSplit: 0 }];
 
       await wb.xlsx.writeFile(resolved);
 
-      return `Chart/pivot added to "${sheetName}" in ${resolved}.`;
+      return `Pivot table "${titleText}" written to sheet "${outName}" in ${resolved}.\n${uniqueKeys.length} categories + total row. Formulas use ${aggregation}IF — they recalculate automatically when source data changes.\nTip: select B${dataStart}:B${totalRow - 1} in Excel and Insert → Chart to visualise.`;
     },
   },
 
@@ -699,6 +960,432 @@ const OfficeTools = [
       }
 
       return output.join('\n');
+    },
+  },
+
+  // ── PPTX write ────────────────────────────────────────────────────────────
+  {
+    name: 'office_write_pptx',
+    category: 'office',
+    description: 'POWERPOINT PRESENTATIONS ONLY — NOT for Excel/spreadsheets (use office_write_xlsx for those). Creates a styled .pptx using pptxgenjs with built-in themes or a user template. QUALITY REQUIREMENTS: (1) Every slide title must be a TALKING HEADER — a complete sentence conveying the key insight, e.g. "Enterprise AI Adoption Tripled in 2025" not just "AI Adoption". (2) Content slides need 4–6 substantive bullet points minimum. (3) Always generate the exact number of slides requested. (4) Required structure: first slide = title layout, last slide = title layout (closing/thank you), middle slides = content/section/two-column/table. (5) Use section slides as visual dividers between topic groups.',
+    params: ['path', 'title', 'slides', 'templatePath', 'theme', 'author'],
+    permissionLevel: 'write',
+    async execute({ path: filePath, title = 'Presentation', slides = [], templatePath, theme = 'professional', author = '' }) {
+      if (!filePath) throw new Error('path is required');
+      const resolved = resolvePath(filePath);
+
+      // ── Built-in themes ────────────────────────────────────────────────────
+      const THEMES = {
+        professional: {
+          bg: 'FFFFFF',
+          titleBg: '1E3A5F',
+          titleText: 'FFFFFF',
+          titleSubtext: 'A8C4E0',
+          accentBar: '2E86AB',
+          headingText: '1E3A5F',
+          bodyText: '2D3748',
+          bulletText: '374151',
+          font: 'Calibri',
+          slidesBg: 'F8FAFC',
+          slidesBgAlt: 'FFFFFF',
+          tableHeader: '1E3A5F',
+          tableHeaderText: 'FFFFFF',
+          tableRowAlt: 'EBF4F9',
+          chartColors: ['2E86AB', '1E3A5F', '4FB0C6', 'A8C4E0', '6B7280'],
+        },
+        dark: {
+          bg: '1A1A2E',
+          titleBg: '16213E',
+          titleText: 'E2E8F0',
+          titleSubtext: '94A3B8',
+          accentBar: '0F3460',
+          headingText: 'E2E8F0',
+          bodyText: 'CBD5E1',
+          bulletText: 'CBD5E1',
+          font: 'Calibri',
+          slidesBg: '1A1A2E',
+          slidesBgAlt: '16213E',
+          tableHeader: '0F3460',
+          tableHeaderText: 'E2E8F0',
+          tableRowAlt: '1E2A4A',
+          chartColors: ['4A9EBF', 'E94560', '0F3460', '533483', '16213E'],
+        },
+        minimal: {
+          bg: 'FFFFFF',
+          titleBg: 'FFFFFF',
+          titleText: '111827',
+          titleSubtext: '6B7280',
+          accentBar: '111827',
+          headingText: '111827',
+          bodyText: '374151',
+          bulletText: '4B5563',
+          font: 'Helvetica',
+          slidesBg: 'FFFFFF',
+          slidesBgAlt: 'F9FAFB',
+          tableHeader: '111827',
+          tableHeaderText: 'FFFFFF',
+          tableRowAlt: 'F3F4F6',
+          chartColors: ['111827', '6B7280', '9CA3AF', 'D1D5DB', '374151'],
+        },
+        vibrant: {
+          bg: 'FFFFFF',
+          titleBg: '7C3AED',
+          titleText: 'FFFFFF',
+          titleSubtext: 'DDD6FE',
+          accentBar: '7C3AED',
+          headingText: '4C1D95',
+          bodyText: '374151',
+          bulletText: '374151',
+          font: 'Calibri',
+          slidesBg: 'FAFAFA',
+          slidesBgAlt: 'FFFFFF',
+          tableHeader: '7C3AED',
+          tableHeaderText: 'FFFFFF',
+          tableRowAlt: 'F5F3FF',
+          chartColors: ['7C3AED', 'A78BFA', 'C4B5FD', 'DDD6FE', '4C1D95'],
+        },
+      };
+
+      let t = THEMES[theme] || THEMES.professional;
+
+      // ── Template color extraction (override theme with template's palette) ──
+      if (templatePath) {
+        try {
+          const tmplResolved = resolvePath(templatePath);
+          const JSZip = require('jszip');
+          const tmplData = await fsp.readFile(tmplResolved);
+          const tmplZip = await JSZip.loadAsync(tmplData);
+
+          // Try to extract accent/dk1/lt1 colors from theme XML
+          const themeFiles = Object.keys(tmplZip.files).filter((n) =>
+            /^ppt\/theme\/theme\d*\.xml$/.test(n)
+          );
+          if (themeFiles.length > 0) {
+            const themeXml = await tmplZip.files[themeFiles[0]].async('text');
+
+            const extractColor = (tag) => {
+              const m = themeXml.match(new RegExp(`<a:${tag}[^>]*>[\\s\\S]*?<a:srgbClr val="([A-Fa-f0-9]{6})"`, 'i'));
+              return m ? m[1].toUpperCase() : null;
+            };
+            const dk1 = extractColor('dk1');
+            const lt1 = extractColor('lt1');
+            const accent1 = extractColor('accent1');
+            const accent2 = extractColor('accent2');
+
+            // Apply extracted colors if found
+            if (dk1) {
+              t = { ...t, titleText: lt1 || t.titleText, headingText: dk1, bodyText: dk1 };
+            }
+            if (lt1) {
+              t = { ...t, titleBg: dk1 || t.titleBg, slidesBg: lt1, slidesBgAlt: lt1 };
+            }
+            if (accent1) {
+              t = { ...t, accentBar: accent1, titleBg: accent1, tableHeader: accent1 };
+            }
+            if (accent2) {
+              t = { ...t, chartColors: [accent1 || t.chartColors[0], accent2, ...t.chartColors.slice(2)] };
+            }
+          }
+        } catch (e) {
+          // Template read failed — fall back to chosen theme silently
+        }
+      }
+
+      // ── Build presentation ─────────────────────────────────────────────────
+      const pptxgen = require('pptxgenjs');
+      const pres = new pptxgen();
+      pres.layout = 'LAYOUT_16x9';
+      pres.title = title;
+      if (author) pres.author = author;
+
+      const W = 10; // slide width inches
+      const H = 5.625; // slide height inches
+
+      const makeShadow = () => ({
+        type: 'outer', color: '000000', blur: 6, offset: 2, angle: 135, opacity: 0.12,
+      });
+
+      // ── Helper: title/cover slide ──────────────────────────────────────────
+      const addTitleSlide = (slide, { title: sTitle = '', subtitle = '' }) => {
+        slide.background = { color: t.titleBg };
+
+        // Decorative accent rectangle (bottom band)
+        slide.addShape(pres.shapes.RECTANGLE, {
+          x: 0, y: H - 0.55, w: W, h: 0.55,
+          fill: { color: t.accentBar, transparency: 20 },
+          line: { color: t.accentBar, width: 0 },
+        });
+
+        // Left vertical accent bar
+        slide.addShape(pres.shapes.RECTANGLE, {
+          x: 0, y: 0, w: 0.18, h: H,
+          fill: { color: t.accentBar },
+          line: { color: t.accentBar, width: 0 },
+        });
+
+        // Title text
+        slide.addText(sTitle, {
+          x: 0.5, y: 1.5, w: W - 1.0, h: 1.2,
+          fontSize: 36, fontFace: t.font, color: t.titleText,
+          bold: true, align: 'left', valign: 'middle', margin: 0,
+        });
+
+        // Subtitle
+        if (subtitle) {
+          slide.addText(subtitle, {
+            x: 0.5, y: 2.9, w: W - 1.0, h: 0.8,
+            fontSize: 18, fontFace: t.font, color: t.titleSubtext,
+            bold: false, align: 'left', valign: 'top', margin: 0,
+          });
+        }
+      };
+
+      // ── Helper: content slide ──────────────────────────────────────────────
+      const addContentSlide = (slide, { title: sTitle = '', content = [], notes = '' }) => {
+        slide.background = { color: t.slidesBg };
+
+        // Top header bar
+        slide.addShape(pres.shapes.RECTANGLE, {
+          x: 0, y: 0, w: W, h: 0.9,
+          fill: { color: t.titleBg },
+          line: { color: t.titleBg, width: 0 },
+        });
+
+        // Left accent bar (full height)
+        slide.addShape(pres.shapes.RECTANGLE, {
+          x: 0, y: 0, w: 0.12, h: H,
+          fill: { color: t.accentBar },
+          line: { color: t.accentBar, width: 0 },
+        });
+
+        // Slide title
+        slide.addText(sTitle, {
+          x: 0.28, y: 0, w: W - 0.4, h: 0.9,
+          fontSize: 22, fontFace: t.font, color: t.titleText,
+          bold: true, align: 'left', valign: 'middle', margin: [0, 0, 0, 0.15],
+        });
+
+        // Bullet content
+        if (content.length > 0) {
+          const bulletItems = content.map((item, idx) => {
+            const isSubItem = typeof item === 'string' && item.startsWith('  ');
+            const text = typeof item === 'string' ? item.trim() : String(item);
+            return {
+              text,
+              options: {
+                bullet: true,
+                indentLevel: isSubItem ? 1 : 0,
+                fontSize: isSubItem ? 14 : 16,
+                fontFace: t.font,
+                color: t.bulletText,
+                breakLine: idx < content.length - 1,
+                paraSpaceAfter: isSubItem ? 4 : 8,
+              },
+            };
+          });
+
+          slide.addText(bulletItems, {
+            x: 0.28, y: 1.0, w: W - 0.55, h: H - 1.15,
+            valign: 'top', margin: [0.1, 0.1, 0.1, 0.1],
+          });
+        }
+
+        if (notes) slide.addNotes(notes);
+      };
+
+      // ── Helper: two-column slide ───────────────────────────────────────────
+      const addTwoColumnSlide = (slide, { title: sTitle = '', leftContent = [], rightContent = [], notes = '' }) => {
+        slide.background = { color: t.slidesBg };
+
+        // Header bar
+        slide.addShape(pres.shapes.RECTANGLE, {
+          x: 0, y: 0, w: W, h: 0.9,
+          fill: { color: t.titleBg },
+          line: { color: t.titleBg, width: 0 },
+        });
+
+        // Accent bar
+        slide.addShape(pres.shapes.RECTANGLE, {
+          x: 0, y: 0, w: 0.12, h: H,
+          fill: { color: t.accentBar },
+          line: { color: t.accentBar, width: 0 },
+        });
+
+        // Title
+        slide.addText(sTitle, {
+          x: 0.28, y: 0, w: W - 0.4, h: 0.9,
+          fontSize: 22, fontFace: t.font, color: t.titleText,
+          bold: true, align: 'left', valign: 'middle', margin: [0, 0, 0, 0.15],
+        });
+
+        // Divider line between columns
+        slide.addShape(pres.shapes.LINE, {
+          x: 5.0, y: 1.0, w: 0, h: H - 1.15,
+          line: { color: t.accentBar, width: 1 },
+        });
+
+        // Left column
+        if (leftContent.length > 0) {
+          const items = leftContent.map((item, idx) => ({
+            text: typeof item === 'string' ? item.trim() : String(item),
+            options: {
+              bullet: true,
+              fontSize: 14, fontFace: t.font, color: t.bulletText,
+              breakLine: idx < leftContent.length - 1,
+              paraSpaceAfter: 6,
+            },
+          }));
+          slide.addText(items, {
+            x: 0.28, y: 1.05, w: 4.55, h: H - 1.25,
+            valign: 'top', margin: [0.05, 0.1, 0.05, 0.1],
+          });
+        }
+
+        // Right column
+        if (rightContent.length > 0) {
+          const items = rightContent.map((item, idx) => ({
+            text: typeof item === 'string' ? item.trim() : String(item),
+            options: {
+              bullet: true,
+              fontSize: 14, fontFace: t.font, color: t.bulletText,
+              breakLine: idx < rightContent.length - 1,
+              paraSpaceAfter: 6,
+            },
+          }));
+          slide.addText(items, {
+            x: 5.2, y: 1.05, w: 4.55, h: H - 1.25,
+            valign: 'top', margin: [0.05, 0.1, 0.05, 0.1],
+          });
+        }
+
+        if (notes) slide.addNotes(notes);
+      };
+
+      // ── Helper: table slide ────────────────────────────────────────────────
+      const addTableSlide = (slide, { title: sTitle = '', tableData = [], notes = '' }) => {
+        slide.background = { color: t.slidesBg };
+
+        // Header bar
+        slide.addShape(pres.shapes.RECTANGLE, {
+          x: 0, y: 0, w: W, h: 0.9,
+          fill: { color: t.titleBg },
+          line: { color: t.titleBg, width: 0 },
+        });
+
+        // Accent bar
+        slide.addShape(pres.shapes.RECTANGLE, {
+          x: 0, y: 0, w: 0.12, h: H,
+          fill: { color: t.accentBar },
+          line: { color: t.accentBar, width: 0 },
+        });
+
+        slide.addText(sTitle, {
+          x: 0.28, y: 0, w: W - 0.4, h: 0.9,
+          fontSize: 22, fontFace: t.font, color: t.titleText,
+          bold: true, align: 'left', valign: 'middle', margin: [0, 0, 0, 0.15],
+        });
+
+        if (tableData.length > 0) {
+          const rows = tableData.map((row, ri) =>
+            row.map((cell) => ({
+              text: String(cell),
+              options: {
+                fontSize: 13,
+                fontFace: t.font,
+                fill: { color: ri === 0 ? t.tableHeader : (ri % 2 === 0 ? t.tableRowAlt : 'FFFFFF') },
+                color: ri === 0 ? t.tableHeaderText : t.bodyText,
+                bold: ri === 0,
+                align: 'center',
+                valign: 'middle',
+              },
+            }))
+          );
+          slide.addTable(rows, {
+            x: 0.28, y: 1.0, w: W - 0.55,
+            border: { pt: 0.5, color: 'D1D5DB' },
+            rowH: 0.4,
+          });
+        }
+
+        if (notes) slide.addNotes(notes);
+      };
+
+      // ── Helper: section/divider slide ─────────────────────────────────────
+      const addSectionSlide = (slide, { title: sTitle = '', subtitle = '' }) => {
+        slide.background = { color: t.accentBar };
+
+        slide.addShape(pres.shapes.RECTANGLE, {
+          x: W * 0.55, y: 0, w: W * 0.45, h: H,
+          fill: { color: t.titleBg },
+          line: { color: t.titleBg, width: 0 },
+        });
+
+        slide.addText(sTitle, {
+          x: 0.5, y: 1.8, w: W * 0.5, h: 1.2,
+          fontSize: 30, fontFace: t.font, color: t.titleText,
+          bold: true, align: 'left', valign: 'middle', margin: 0,
+        });
+
+        if (subtitle) {
+          slide.addText(subtitle, {
+            x: 0.5, y: 3.1, w: W * 0.5, h: 0.7,
+            fontSize: 16, fontFace: t.font, color: t.titleSubtext,
+            align: 'left', valign: 'top', margin: 0,
+          });
+        }
+      };
+
+      // ── Render each slide ──────────────────────────────────────────────────
+      for (const s of slides) {
+        const layout = s.layout || 'content';
+        const slide = pres.addSlide();
+
+        if (layout === 'title') {
+          addTitleSlide(slide, s);
+        } else if (layout === 'two-column') {
+          addTwoColumnSlide(slide, s);
+        } else if (layout === 'table') {
+          addTableSlide(slide, s);
+        } else if (layout === 'section') {
+          addSectionSlide(slide, s);
+        } else {
+          addContentSlide(slide, s);
+        }
+      }
+
+      await pres.writeFile({ fileName: resolved });
+
+      // ── Fix: pptxgenjs v4 declares slideMaster2.xml in [Content_Types].xml
+      // but never writes that file, causing strict OOXML parsers (WPS, LibreOffice)
+      // to reject the file. Strip any Content_Types <Override> entries that point
+      // to parts not present in the ZIP archive.
+      try {
+        const JSZip = require('jszip');
+        const raw = await fsp.readFile(resolved);
+        const zip = await JSZip.loadAsync(raw);
+
+        const presentParts = new Set(Object.keys(zip.files).map((n) => '/' + n.replace(/^\//, '')));
+        let ct = await zip.files['[Content_Types].xml'].async('text');
+
+        // Remove <Override PartName="..."/> entries where the part is missing
+        ct = ct.replace(/<Override\s+PartName="([^"]+)"[^>]*\/>/g, (match, partName) => {
+          const key = partName.startsWith('/') ? partName : '/' + partName;
+          // Only prune /ppt/ parts — keep docProps and other package-level parts
+          if (!key.startsWith('/ppt/')) return match;
+          return presentParts.has(key) ? match : '';
+        });
+
+        zip.file('[Content_Types].xml', ct);
+        const fixed = await zip.generateAsync({
+          type: 'nodebuffer',
+          compression: 'DEFLATE',
+          compressionOptions: { level: 6 },
+        });
+        await fsp.writeFile(resolved, fixed);
+      } catch { /* if post-processing fails, leave original file intact */ }
+
+      const slideCount = slides.length;
+      return `Created "${path.basename(resolved)}" — ${slideCount} slide${slideCount !== 1 ? 's' : ''}${templatePath ? ' (styled from template)' : ` (theme: ${theme})`}.\nSaved to: ${resolved}`;
     },
   },
 

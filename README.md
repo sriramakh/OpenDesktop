@@ -36,13 +36,13 @@ Built with **Electron + React + Node.js** — everything runs locally on your ma
 │  ┌──────────┴──────────┐  ┌──────────┴────────────────┐ │
 │  │   Tool Registry      │  │    Memory System          │ │
 │  │  • Filesystem (11)   │  │  • Short-term (100 msg)   │ │
-│  │  • Office (9)        │  │  • Long-term (SQLite FTS) │ │
+│  │  • Office (10)       │  │  • Long-term (SQLite FTS) │ │
 │  │  • App Control (6)   │  │  • Full-text search       │ │
 │  │  • Browser (5)       │  │  • JSON fallback          │ │
 │  │  • Search/Fetch (4)  │  ├──────────────────────────┤ │
 │  │  • System (6)        │  │  Permission Manager       │ │
 │  │  • LLM (4)           │  │  safe / sensitive / danger │ │
-│  │  Total: 45 tools     │  └──────────────────────────┘ │
+│  │  Total: 46 tools     │  └──────────────────────────┘ │
 │  └──────────────────────┘                                │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -105,20 +105,20 @@ Choose from **10 providers** and **80+ models** directly in the Settings UI:
 - **Encrypted API key storage** — AES-256-GCM encryption with machine-specific key derivation (PBKDF2, 100K iterations)
 - Keys are stored in `~/.config/open-desktop/.keystore.enc`, never in plaintext
 
-### Unified Tool System (45 tools)
+### Unified Tool System (46 tools)
 
 All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native function calling with every LLM provider.
 
 | Category | Tools | Count | Permission |
 |----------|-------|:-----:|------------|
 | **Filesystem** | `fs_read`, `fs_write`, `fs_edit`, `fs_list`, `fs_search`, `fs_delete`, `fs_move`, `fs_mkdir`, `fs_tree`, `fs_info`, `fs_organize` | 11 | Safe/Sensitive/Dangerous |
-| **Office Documents** | `office_read_pdf`, `office_read_docx`, `office_write_docx`, `office_read_xlsx`, `office_write_xlsx`, `office_chart_xlsx`, `office_read_pptx`, `office_read_csv`, `office_write_csv` | 9 | Safe/Sensitive |
+| **Office Documents** | `office_read_pdf`, `office_read_docx`, `office_write_docx`, `office_read_xlsx`, `office_write_xlsx`, `office_chart_xlsx`, `office_read_pptx`, `office_write_pptx`, `office_read_csv`, `office_write_csv` | 10 | Safe/Sensitive |
 | **App Control** | `app_open`, `app_find`, `app_list`, `app_focus`, `app_quit`, `app_screenshot` | 6 | Safe/Sensitive |
 | **Browser** | `browser_navigate`, `browser_click`, `browser_type`, `browser_key`, `browser_submit_form` | 5 | Sensitive/Dangerous |
 | **Search/Fetch** | `web_search`, `web_fetch`, `web_fetch_json`, `web_download` | 4 | Safe/Sensitive |
 | **System** | `system_exec`, `system_info`, `system_processes`, `system_clipboard_read`, `system_clipboard_write`, `system_notify` | 6 | Safe/Sensitive |
 | **LLM** | `llm_query`, `llm_summarize`, `llm_extract`, `llm_code` | 4 | Safe |
-| **Total** | | **45** | |
+| **Total** | | **46** | |
 
 #### Key tool capabilities
 
@@ -130,9 +130,11 @@ All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native f
 - **`office_read_pdf`** — Full PDF text extraction via `pdf-parse` v2 with page range support, password handling, and **automatic OCR for scanned PDFs** (detects < 30 chars/page → renders via PyMuPDF → tesseract OCR)
 - **`office_read_docx`** — Word document extraction via `mammoth` (text or HTML output)
 - **`office_write_docx`** — Creates `.docx` files from markdown-like content (headings, bullets, numbered lists)
-- **`office_read_xlsx`** / **`office_write_xlsx`** — Full Excel read/write via SheetJS: cell values, formulas (`=SUM`, `=VLOOKUP`), multi-sheet support
-- **`office_chart_xlsx`** — Add charts and pivot tables to Excel workbooks via ExcelJS
+- **`office_read_xlsx`** — Excel read via SheetJS with `summaryOnly` mode, merged cells/column widths metadata, row×col dimensions
+- **`office_write_xlsx`** — Excel write via ExcelJS with full formatting, 12 operation types (`set_cell`, `format_range`, `freeze_panes`, `merge_cells`, `create_table`, `auto_fit_columns`, etc.), financial color coding, and `autoFormat` mode
+- **`office_chart_xlsx`** — Dynamic pivot/summary tables using SUMIF/COUNTIF/AVERAGEIF formulas that auto-recalculate when source data changes
 - **`office_read_pptx`** — PowerPoint slide extraction (titles, body text, speaker notes) via JSZip XML parsing
+- **`office_write_pptx`** — PowerPoint creation via pptxgenjs with 4 built-in themes (professional/dark/minimal/vibrant), 5 slide layouts (title/content/two-column/table/section), template color extraction, and OOXML post-processing fix
 - **`office_read_csv`** / **`office_write_csv`** — CSV/TSV with auto-delimiter detection, pagination, and JSON output
 
 ### Memory System
@@ -208,9 +210,10 @@ API keys are encrypted with AES-256-GCM using a machine-specific derived key and
 For full PDF/Excel/PPTX reading, the following are bundled as npm dependencies (installed automatically):
 - **pdf-parse** v2 — PDF text extraction (class-based API with Uint8Array)
 - **mammoth** — DOCX reading
-- **xlsx (SheetJS)** — Excel read/write
-- **exceljs** — Excel charts and pivot tables
-- **jszip** — PPTX XML extraction
+- **xlsx (SheetJS)** — Excel reading
+- **exceljs** — Excel writing with full formatting, charts, and pivot tables
+- **pptxgenjs** — PowerPoint creation with themes and slide layouts
+- **jszip** — PPTX/DOCX XML extraction and manipulation
 
 ### Optional: Scanned PDF OCR Support
 
@@ -255,9 +258,9 @@ OpenDesktop/
 │   │       ├── context.js       # OS context awareness
 │   │       └── tools/
 │   │           ├── registry.js      # Tool registration + provider-specific schema generation
-│   │           ├── tool-schemas.js  # JSON Schema definitions for all 44 tools
+│   │           ├── tool-schemas.js  # JSON Schema definitions for all 46 tools
 │   │           ├── filesystem.js    # 11 file ops (read, write, move, organize, tree, etc.)
-│   │           ├── office.js        # 9 office document ops (PDF, DOCX, XLSX, PPTX, CSV)
+│   │           ├── office.js        # 10 office document ops (PDF, DOCX, XLSX, PPTX, CSV)
 │   │           ├── app-control.js   # 6 app ops (open with fuzzy match, find, list, etc.)
 │   │           ├── browser.js       # 5 browser/UI automation ops
 │   │           ├── search-fetch.js  # 4 web ops

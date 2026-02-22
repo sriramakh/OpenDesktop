@@ -698,107 +698,57 @@ const TOOL_SCHEMAS = {
   },
 
   office_read_xlsx: {
-    description: 'Read an Excel workbook (.xlsx or .xls). Returns all sheets with data, column headers, and optionally cell formulas. Handles multiple sheets.',
+    description: 'Read an Excel workbook (.xlsx/.xls). Returns sheet data, formulas, merged cells, column widths. Use summaryOnly=true for a fast overview of large files (headers + row count only).',
     properties: {
-      path: {
-        type: 'string',
-        description: 'Absolute path to the Excel file.',
-      },
-      sheetName: {
-        type: 'string',
-        description: 'Specific sheet name to read. Omit to read all sheets.',
-      },
-      maxRows: {
-        type: 'number',
-        description: 'Maximum rows to return per sheet. Default: 500.',
-        default: 500,
-      },
-      includeFormulas: {
-        type: 'boolean',
-        description: 'If true, show cell formulas alongside values. Default: false.',
-        default: false,
-      },
-      outputFormat: {
-        type: 'string',
-        description: "Output format: 'text' (CSV-like, default) or 'json' (array of objects).",
-        enum: ['text', 'json'],
-        default: 'text',
-      },
+      path: { type: 'string', description: 'Absolute path to the Excel file.' },
+      sheetName: { type: 'string', description: 'Specific sheet name to read. Omit to read all sheets.' },
+      maxRows: { type: 'number', description: 'Max rows to return per sheet. Default: 500.', default: 500 },
+      includeFormulas: { type: 'boolean', description: 'If true, list all cell formulas after the data. Default: false.', default: false },
+      outputFormat: { type: 'string', description: "'text' (tab-separated, default) or 'json' (array of arrays).", enum: ['text', 'json'], default: 'text' },
+      summaryOnly: { type: 'boolean', description: 'If true, return only headers + row count per sheet (no data). Useful for large files to understand structure first.', default: false },
     },
     required: ['path'],
   },
 
   office_write_xlsx: {
-    description: 'Write or modify an Excel workbook. Use sheetData for quick full-sheet writes, or operations for fine-grained cell control including formulas. Supports all Excel formulas (=SUM, =VLOOKUP, etc.). Creates the file if it does not exist.',
+    description: 'EXCEL SPREADSHEETS ONLY — NOT for PowerPoint or presentations (use office_write_pptx for those). Creates or modifies .xlsx workbooks. Use sheetData for fast bulk writes. Use operations for precise control. ALWAYS use Excel formulas (=SUM, =IF, =VLOOKUP) instead of hardcoded values so spreadsheets stay dynamic. Financial color coding: set financial_type on set_cell ops (input=blue, formula=black, cross_sheet=green, external=red, assumption=yellow bg).',
     properties: {
-      path: {
-        type: 'string',
-        description: 'Absolute path to the Excel file.',
+      path: { type: 'string', description: 'Absolute path to the Excel file. Created if it does not exist.' },
+      autoFormat: {
+        type: 'boolean',
+        description: 'When true and using sheetData, auto-applies professional styling: dark blue header row, alternating row fills, frozen header, auto-sized columns. Default: false.',
+        default: false,
       },
       sheetData: {
         type: 'object',
-        description: 'Object mapping sheet names to 2D arrays: {"Sheet1": [[header1, header2], [val1, val2]], "Sheet2": [...]}. Fastest way to write bulk data.',
+        description: 'Bulk write: map sheet names to 2D arrays. First row = headers. Cell values starting with "=" become formulas. Example: {"Sales": [["Month","Revenue","=SUM(B2:B13)"],["Jan",5000]]}.',
         additionalProperties: true,
       },
       operations: {
         type: 'array',
-        description: 'Array of cell operations: [{type: "set_cell", sheet: "Sheet1", cell: "A1", value: 42}, {type: "set_cell", sheet: "Sheet1", cell: "B1", formula: "SUM(A1:A10)"}, {type: "set_range", sheet: "Sheet1", range: "A1", data: [[1,2],[3,4]]}, {type: "add_sheet", name: "Summary"}, {type: "auto_sum", sheet: "Sheet1", sourceRange: "B2:B10", targetCell: "B11"}].',
-        items: {
-          type: 'object',
-          properties: {
-            type:        { type: 'string', description: "Operation type: 'set_cell', 'set_range', 'add_sheet', or 'auto_sum'." },
-            sheet:       { type: 'string', description: 'Target sheet name.' },
-            cell:        { type: 'string', description: "Cell address (e.g. 'A1'). Used with set_cell." },
-            value:       { type: 'string', description: 'Cell value. Used with set_cell.' },
-            formula:     { type: 'string', description: "Excel formula (e.g. '=SUM(A1:A10)'). Used with set_cell." },
-            range:       { type: 'string', description: "Starting cell for set_range (e.g. 'A1')." },
-            data:        { type: 'array', description: '2D array of values for set_range.', items: { type: 'array', items: { type: 'string' } } },
-            name:        { type: 'string', description: 'Sheet name for add_sheet.' },
-            sourceRange: { type: 'string', description: "Source range for auto_sum (e.g. 'B2:B10')." },
-            targetCell:  { type: 'string', description: "Target cell for auto_sum (e.g. 'B11')." },
-          },
-        },
+        description: 'Fine-grained operations array. Each op has a "type" field. Supported types and their fields:\n• set_cell: sheet, cell (e.g."A1"), value OR formula (e.g."=SUM(B2:B10)"), financial_type ("input"|"formula"|"cross_sheet"|"external"|"assumption"), style\n• set_range: sheet, range (start cell e.g."A1"), data (2D array, "=" strings become formulas)\n• add_sheet: name, data (optional 2D array)\n• auto_sum: sheet, sourceRange, targetCell, style\n• format_range: sheet, range (e.g."A1:D10"), style {bold, italic, fontSize, fontColor (hex no#), bgColor (hex no#), numFormat, align, valign, wrapText, border}\n• freeze_panes: sheet, row (default 1), col (default 0)\n• set_column_width: sheet, col ("A"), width (number) — or cols:[{col,width}] for batch\n• set_row_height: sheet, row (number), height\n• merge_cells: sheet, range (e.g."A1:D1")\n• create_table: sheet, range (e.g."A1:E20"), tableName — styles header+data with alternating fills + auto-filter\n• auto_fit_columns: sheet — auto-sizes all columns based on content\n• add_comment: sheet, cell, comment (string)',
+        items: { type: 'object', additionalProperties: true },
       },
     },
     required: ['path'],
   },
 
   office_chart_xlsx: {
-    description: 'Add a chart or pivot table to an Excel workbook. Supports bar, line, pie, scatter chart types. Can auto-generate a pivot table from a data range.',
+    description: 'Build a dynamic pivot/summary table in an Excel workbook. Uses SUMIF/COUNTIF/AVERAGEIF/MAXIFS/MINIFS formulas so the summary auto-recalculates when source data changes. Writes a professionally styled sheet. To create a chart: open in Excel, select the summary data, and Insert → Chart.',
     properties: {
-      path: {
-        type: 'string',
-        description: 'Absolute path to the Excel file.',
-      },
-      chartType: {
-        type: 'string',
-        description: "Chart type: 'bar', 'line', 'pie', 'scatter'. Default: 'bar'.",
-        enum: ['bar', 'line', 'pie', 'scatter'],
-        default: 'bar',
-      },
-      dataSheet: {
-        type: 'string',
-        description: 'Source sheet name containing the data. Defaults to first sheet.',
-      },
-      dataRange: {
-        type: 'string',
-        description: "Data range for the chart (e.g. 'A1:C10').",
-      },
-      outputSheet: {
-        type: 'string',
-        description: "Name of the sheet to add the chart to. Default: 'Chart'.",
-      },
-      title: {
-        type: 'string',
-        description: 'Chart title.',
-      },
+      path: { type: 'string', description: 'Absolute path to the Excel file.' },
+      dataSheet: { type: 'string', description: 'Source sheet name. Defaults to first sheet.' },
+      dataRange: { type: 'string', description: "Optional range to limit source rows (e.g. 'A1:F500'). Defaults to all rows." },
+      outputSheet: { type: 'string', description: "Sheet name for the pivot output. Default: 'Summary'." },
+      title: { type: 'string', description: 'Title for the summary table.' },
       pivotConfig: {
         type: 'object',
-        description: "Pivot table config: {groupByCol: 1, valueCol: 2, aggregation: 'SUM'}. Column numbers are 1-indexed.",
+        description: 'Pivot configuration (all fields are 1-indexed column numbers).',
         properties: {
-          groupByCol:  { type: 'number', description: 'Column number to group by (1-indexed).' },
-          valueCol:    { type: 'number', description: 'Column number to aggregate (1-indexed).' },
-          aggregation: { type: 'string', description: "Aggregation function: 'SUM', 'COUNT', 'AVG'." },
+          groupByCol:  { type: 'number', description: 'Column number to group by (1-indexed). Default: 1.' },
+          valueCol:    { type: 'number', description: 'Column number to aggregate (1-indexed). Default: 2.' },
+          aggregation: { type: 'string', description: "Aggregation: 'SUM' (default), 'COUNT', 'AVG', 'MAX', 'MIN'.", enum: ['SUM', 'COUNT', 'AVG', 'MAX', 'MIN'] },
+          labelCol:    { type: 'number', description: 'Optional column for a third label column in the output.' },
         },
       },
     },
@@ -823,6 +773,103 @@ const TOOL_SCHEMAS = {
       },
     },
     required: ['path'],
+  },
+
+  office_write_pptx: {
+    description: `POWERPOINT PRESENTATIONS ONLY — NOT for Excel/spreadsheets (use office_write_xlsx for data/tables).
+
+MANDATORY QUALITY RULES — violating any of these produces a bad presentation:
+
+1. TALKING HEADERS: Every slide title MUST be a complete sentence that conveys the key insight.
+   BAD: "Market Overview"  |  GOOD: "The Global AI Market Will Reach $1.8T by 2030"
+   BAD: "Key Findings"     |  GOOD: "Three Structural Shifts Are Redefining the Industry"
+   BAD: "Introduction"     |  GOOD: "AI Is No Longer Optional — It's a Competitive Necessity"
+
+2. SLIDE COUNT: Generate EXACTLY the number of slides requested. If asked for 5, build 5.
+
+3. CONTENT DENSITY: Content slides need 4–6 bullet points minimum. Sub-bullets add depth.
+   Each bullet should be a meaningful statement, not a one-word label.
+
+4. REQUIRED STRUCTURE:
+   - Slide 1: layout="title" (cover with title + subtitle)
+   - Middle slides: layout="content" / "two-column" / "table" / "section" as appropriate
+   - Use layout="section" as visual chapter dividers in longer decks (5+ slides)
+   - Use layout="two-column" for comparisons, before/after, pros/cons
+   - Use layout="table" for structured data (3+ rows, 2+ columns)
+   - Last slide: layout="title" (closing / thank you)
+
+5. SPEAKER NOTES: Add notes to every slide with talking points the presenter should cover.
+
+6. PLANNING: Before building the slides array, mentally outline every slide — topic, insight, 4–6 supporting points. Never generate a slide with only 1–2 bullets.`,
+
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Absolute output path for the .pptx file (e.g. /Users/name/Desktop/deck.pptx).',
+      },
+      title: {
+        type: 'string',
+        description: 'Presentation title (document metadata).',
+      },
+      slides: {
+        type: 'array',
+        description: 'Fully-planned slides array. Each slide must follow the quality rules in the tool description.',
+        items: {
+          type: 'object',
+          properties: {
+            layout: {
+              type: 'string',
+              enum: ['title', 'content', 'two-column', 'table', 'section'],
+              description: '"title" = cover/closing. "content" = bullet list (4–6 items). "two-column" = left/right comparison. "table" = data grid. "section" = visual chapter divider.',
+            },
+            title: {
+              type: 'string',
+              description: 'TALKING HEADER — a complete sentence conveying the key insight of this slide. Not a noun label.',
+            },
+            subtitle: {
+              type: 'string',
+              description: 'Supporting line under the title (title and section layouts only). E.g. presenter name, date, or section descriptor.',
+            },
+            content: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Bullet points for content layout. Minimum 4, ideally 5–6. Each bullet is a meaningful statement. Prefix with two spaces to indent as a sub-bullet: "  Supporting detail here".',
+            },
+            leftContent: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Left column bullets (two-column layout). 3–5 items.',
+            },
+            rightContent: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Right column bullets (two-column layout). 3–5 items.',
+            },
+            tableData: {
+              type: 'array',
+              items: { type: 'array', items: { type: 'string' } },
+              description: '2D array for table layout. First row = headers. Minimum 3 data rows for a useful table.',
+            },
+            notes: {
+              type: 'string',
+              description: 'Speaker notes — talking points the presenter covers on this slide. Always include.',
+            },
+          },
+        },
+      },
+      templatePath: {
+        type: 'string',
+        description: 'Path to an existing .pptx to extract its color palette from. Ask the user if they have one before generating.',
+      },
+      theme: {
+        type: 'string',
+        enum: ['professional', 'dark', 'minimal', 'vibrant'],
+        description: 'Built-in theme when no templatePath given. "professional"=navy/white (default), "dark"=slate/charcoal, "minimal"=black/white, "vibrant"=purple/white.',
+        default: 'professional',
+      },
+      author: { type: 'string', description: 'Author name in file metadata.' },
+    },
+    required: ['path', 'slides'],
   },
 
   office_read_csv: {
