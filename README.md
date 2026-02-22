@@ -8,6 +8,8 @@ Built with **Electron + React + Node.js** — everything runs locally on your ma
 
 ## Architecture
 
+> **For a comprehensive deep-dive into every subsystem, data flow, and design decision, see [ARCHITECTURE.md](ARCHITECTURE.md).**
+
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                      Electron Shell                       │
@@ -34,13 +36,13 @@ Built with **Electron + React + Node.js** — everything runs locally on your ma
 │  ┌──────────┴──────────┐  ┌──────────┴────────────────┐ │
 │  │   Tool Registry      │  │    Memory System          │ │
 │  │  • Filesystem (11)   │  │  • Short-term (100 msg)   │ │
-│  │  • Office (8)        │  │  • Long-term (SQLite FTS) │ │
+│  │  • Office (9)        │  │  • Long-term (SQLite FTS) │ │
 │  │  • App Control (6)   │  │  • Full-text search       │ │
 │  │  • Browser (5)       │  │  • JSON fallback          │ │
 │  │  • Search/Fetch (4)  │  ├──────────────────────────┤ │
 │  │  • System (6)        │  │  Permission Manager       │ │
 │  │  • LLM (4)           │  │  safe / sensitive / danger │ │
-│  │  Total: 44 tools     │  └──────────────────────────┘ │
+│  │  Total: 45 tools     │  └──────────────────────────┘ │
 │  └──────────────────────┘                                │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -103,7 +105,7 @@ Choose from **10 providers** and **80+ models** directly in the Settings UI:
 - **Encrypted API key storage** — AES-256-GCM encryption with machine-specific key derivation (PBKDF2, 100K iterations)
 - Keys are stored in `~/.config/open-desktop/.keystore.enc`, never in plaintext
 
-### Unified Tool System (44 tools)
+### Unified Tool System (45 tools)
 
 All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native function calling with every LLM provider.
 
@@ -116,15 +118,16 @@ All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native f
 | **Search/Fetch** | `web_search`, `web_fetch`, `web_fetch_json`, `web_download` | 4 | Safe/Sensitive |
 | **System** | `system_exec`, `system_info`, `system_processes`, `system_clipboard_read`, `system_clipboard_write`, `system_notify` | 6 | Safe/Sensitive |
 | **LLM** | `llm_query`, `llm_summarize`, `llm_extract`, `llm_code` | 4 | Safe |
+| **Total** | | **45** | |
 
 #### Key tool capabilities
 
-- **`fs_read`** — Reads text files AND binary documents (PDF, DOCX, XLSX, PPTX) with automatic extraction via `textutil`, `pdftotext`, or Python libraries
+- **`fs_read`** — Reads text files AND binary documents (PDF, DOCX, XLSX, PPTX) with automatic extraction. Scanned/image-based PDFs are automatically OCR'd via PyMuPDF + tesseract if available
 - **`fs_move`** — Supports glob patterns (`*.jpg`, `**/*.png`) for batch moves; cross-device fallback (copy+delete)
 - **`fs_organize`** — Atomic directory organizer: classifies files by extension into category folders (Images, Videos, Documents, etc.), only moves files (never subdirectories), supports dry-run preview and custom rules
 - **`app_open`** — Smart app resolution: fuzzy-matches app names against `/Applications` (handles typos like "olama" → "Ollama"), falls back to Spotlight search
 - **`app_find`** — Search for installed apps by name with fuzzy matching and confidence scores
-- **`office_read_pdf`** — Full PDF text extraction via `pdf-parse` with page range support and password handling
+- **`office_read_pdf`** — Full PDF text extraction via `pdf-parse` v2 with page range support, password handling, and **automatic OCR for scanned PDFs** (detects < 30 chars/page → renders via PyMuPDF → tesseract OCR)
 - **`office_read_docx`** — Word document extraction via `mammoth` (text or HTML output)
 - **`office_write_docx`** — Creates `.docx` files from markdown-like content (headings, bullets, numbered lists)
 - **`office_read_xlsx`** / **`office_write_xlsx`** — Full Excel read/write via SheetJS: cell values, formulas (`=SUM`, `=VLOOKUP`), multi-sheet support
@@ -178,10 +181,10 @@ ollama pull llama3
 # The app auto-discovers installed models at http://localhost:11434
 ```
 
-**Option B: Cloud Providers (OpenAI, Claude, Gemini, DeepSeek)**
+**Option B: Cloud Providers (10 providers supported)**
 
 1. Open the app → Settings (gear icon) → **LLM & Models** tab
-2. Click a provider card (OpenAI, Anthropic, Google, DeepSeek)
+2. Click a provider card
 3. Paste your API key → click **Save Key** (encrypted automatically)
 4. Select a model from the dropdown
 5. Click **Save Settings**
@@ -194,15 +197,29 @@ API keys are encrypted with AES-256-GCM using a machine-specific derived key and
 | Anthropic | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) |
 | Google | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | DeepSeek | [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) |
+| xAI (Grok) | [console.x.ai](https://console.x.ai) |
+| Mistral AI | [console.mistral.ai/api-keys](https://console.mistral.ai/api-keys) |
+| Groq | [console.groq.com/keys](https://console.groq.com/keys) |
+| Together AI | [api.together.ai/settings/api-keys](https://api.together.ai/settings/api-keys) |
+| Perplexity | [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api) |
 
 ### Optional: Office Document Support
 
 For full PDF/Excel/PPTX reading, the following are bundled as npm dependencies (installed automatically):
-- **pdf-parse** — PDF text extraction
+- **pdf-parse** v2 — PDF text extraction (class-based API with Uint8Array)
 - **mammoth** — DOCX reading
 - **xlsx (SheetJS)** — Excel read/write
 - **exceljs** — Excel charts and pivot tables
 - **jszip** — PPTX XML extraction
+
+### Optional: Scanned PDF OCR Support
+
+For reading scanned/image-based PDFs (bank statements, receipts, etc.), install:
+```bash
+pip install PyMuPDF    # Renders PDF pages to images
+brew install tesseract  # OCR engine
+```
+When both are available, `office_read_pdf` and `fs_read` automatically detect scanned PDFs (< 30 meaningful characters per page) and OCR them page-by-page.
 
 ### Run
 

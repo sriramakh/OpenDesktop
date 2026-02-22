@@ -75,8 +75,96 @@ function shellExec(cmd, timeout = 30000) {
 }
 
 /**
+ * OCR a PDF using PyMuPDF (fitz) to render pages as images + tesseract.
+ * Works on scanned/image-based PDFs. Requires python3 + fitz + tesseract.
+ */
+async function ocrPDF(filePath, maxPages = 15) {
+  // Inline Python script — uses tempfile.mkstemp() for real paths (avoids /tmp symlink issue on macOS)
+  const script = `
+import sys, os, tempfile, subprocess, json
+
+try:
+    import fitz
+except ImportError:
+    print(json.dumps({'error': 'PyMuPDF not installed: pip install PyMuPDF'}))
+    sys.exit(0)
+
+pdf_path = sys.argv[1]
+max_pages = int(sys.argv[2]) if len(sys.argv) > 2 else 15
+
+try:
+    doc = fitz.open(pdf_path)
+except Exception as e:
+    print(json.dumps({'error': str(e)}))
+    sys.exit(0)
+
+results = []
+for i in range(min(len(doc), max_pages)):
+    page = doc[i]
+    mat = fitz.Matrix(2.5, 2.5)
+    pix = page.get_pixmap(matrix=mat, colorspace=fitz.csGRAY)
+
+    fd, img_path = tempfile.mkstemp(suffix='.png')
+    os.close(fd)
+    fd, out_base = tempfile.mkstemp(suffix='.txt')
+    os.close(fd)
+    out_base = out_base[:-4]
+
+    try:
+        pix.save(img_path)
+        subprocess.run(
+            ['tesseract', img_path, out_base, '-l', 'eng', '--psm', '1'],
+            capture_output=True, timeout=45
+        )
+        txt_file = out_base + '.txt'
+        if os.path.exists(txt_file):
+            with open(txt_file, 'r', encoding='utf-8', errors='replace') as f:
+                text = f.read().strip()
+            os.unlink(txt_file)
+            results.append({'page': i + 1, 'text': text})
+    finally:
+        if os.path.exists(img_path):
+            os.unlink(img_path)
+
+total_pages = len(doc)
+doc.close()
+print(json.dumps({'pages': results, 'total': total_pages}))
+`;
+
+  const scriptPath = path.join(require('os').tmpdir(), `_ocr_pdf_${Date.now()}.py`);
+  await fsp.writeFile(scriptPath, script, 'utf-8');
+  try {
+    const output = await shellExec(`python3 "${scriptPath}" "${filePath}" 15`, 120000);
+    const result = JSON.parse(output.trim());
+    if (result.error) throw new Error(result.error);
+
+    const pageTexts = result.pages
+      .filter((p) => p.text && p.text.trim().length > 0)
+      .map((p) => `=== Page ${p.page} ===\n${p.text}`);
+
+    if (pageTexts.length === 0) throw new Error('OCR produced no text');
+    return `[PDF (OCR): ${result.total} pages — ${path.basename(filePath)}]\n\n${pageTexts.join('\n\n')}`;
+  } finally {
+    await fsp.unlink(scriptPath).catch(() => {});
+  }
+}
+
+/**
+ * Resolve path to pdfjs-dist standard fonts (used by pdf-parse v2 to suppress warnings).
+ */
+function getStandardFontDataUrl() {
+  try {
+    const pdfjsPkg = require.resolve('pdfjs-dist/package.json');
+    return path.join(path.dirname(pdfjsPkg), 'standard_fonts') + path.sep;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Extract readable text from binary document files.
  * Uses native Node.js libraries first, then falls back to shell commands.
+ * For scanned PDFs: falls back to OCR via PyMuPDF + tesseract.
  */
 async function extractBinaryContent(filePath, ext) {
   const platform = process.platform;
@@ -84,32 +172,48 @@ async function extractBinaryContent(filePath, ext) {
 
   // ── PDF ──────────────────────────────────────────────────────────────────────
   if (ext === '.pdf') {
-    // Strategy 1: pdf-parse v2.x (class-based API with Uint8Array)
+    // Strategy 1: pdf-parse v2 (text PDFs) → OCR fallback (scanned PDFs)
     strategies.push(async () => {
       const { PDFParse } = require('pdf-parse');
       const data = await fsp.readFile(filePath);
       const uint8 = new Uint8Array(data);
-      const parser = new PDFParse(uint8);
-      await parser.load();
-      const info = await parser.getInfo();
-      const textResult = await parser.getText();
-      parser.destroy();
-      const text = textResult.text || '';
-      if (text.trim().length < 10) throw new Error('Empty PDF text');
-      return `[PDF: ${info.total || 0} pages]\n\n${text}`;
+      const opts = {};
+      const sfUrl = getStandardFontDataUrl();
+      if (sfUrl) opts.standardFontDataUrl = sfUrl;
+
+      // Suppress pdfjs-dist v5 font warning (non-critical)
+      const _origWarn = console.warn;
+      console.warn = (...a) => { if (String(a[0]).includes('standardFontDataUrl')) return; _origWarn(...a); };
+      let info, result;
+      try {
+        const parser = new PDFParse(uint8, opts);
+        await parser.load();
+        info   = await parser.getInfo();
+        result = await parser.getText();
+        parser.destroy();
+      } finally {
+        console.warn = _origWarn;
+      }
+
+      const text = result.text || '';
+      const pages = info.total || 1;
+      const charsPerPage = text.replace(/[\s\-–]/g, '').length / pages;
+
+      // If sparse (< 30 meaningful chars/page), it's a scanned PDF → try OCR
+      if (charsPerPage < 30) {
+        try {
+          return await ocrPDF(filePath);
+        } catch (ocrErr) {
+          // OCR not available — return what we have with a note
+          return `[PDF: ${pages} pages — scanned/image-based, OCR unavailable: ${ocrErr.message}]\n\nInstall PyMuPDF + tesseract for OCR support:\n  pip install PyMuPDF\n  brew install tesseract`;
+        }
+      }
+
+      return `[PDF: ${pages} pages]\n\n${text.trim()}`;
     });
 
-    // Strategy 2: pdftotext (poppler CLI)
-    strategies.push(async () => {
-      return await shellExec(`pdftotext "${filePath}" -`);
-    });
-
-    // Strategy 3: macOS qlmanage (Quick Look)
-    if (platform === 'darwin') {
-      strategies.push(async () => {
-        return await shellExec(`qlmanage -p "${filePath}" 2>/dev/null; mdimport -d3 "${filePath}" 2>&1 | grep kMDItem | head -100`);
-      });
-    }
+    // Strategy 2: pdftotext CLI (poppler)
+    strategies.push(async () => shellExec(`pdftotext "${filePath}" -`));
   }
 
   // ── DOCX / DOC / RTF / ODT / Pages ──────────────────────────────────────────
@@ -230,7 +334,7 @@ const FilesystemTools = [
   {
     name: 'fs_read',
     category: 'filesystem',
-    description: 'Read the full contents of a file. Supports text files AND binary documents (PDF, DOCX, XLSX, PPTX, etc.) — binary files are automatically extracted to readable text. Use absolute paths. If the target is a directory, returns a listing instead.',
+    description: 'Read the full contents of a file. Supports text files AND binary documents (PDF, DOCX, XLSX, PPTX, CSV) — binary files are automatically extracted to readable text. Scanned PDFs are automatically OCR\'d if PyMuPDF + tesseract are available. Use absolute paths. If the target is a directory, returns a listing instead.',
     params: ['path', 'encoding', 'offset', 'limit'],
     permissionLevel: 'safe',
     async execute({ path: filePath, encoding = 'utf-8', offset, limit }) {

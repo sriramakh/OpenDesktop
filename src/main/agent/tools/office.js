@@ -16,6 +16,178 @@ const path = require('path');
 const os   = require('os');
 const { exec } = require('child_process');
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared PDF helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Path to pdfjs-dist standard fonts — silences pdf-parse v2 warning */
+function getStandardFontDataUrl() {
+  try {
+    const pkg = require.resolve('pdfjs-dist/package.json');
+    return path.join(path.dirname(pkg), 'standard_fonts') + path.sep;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * OCR a PDF using PyMuPDF (fitz) to render pages → PNG → tesseract.
+ * Handles scanned/image-based PDFs. Requires python3 with fitz + tesseract CLI.
+ */
+async function ocrPDF(filePath, maxPages = 15) {
+  const script = `
+import sys, os, tempfile, subprocess, json
+try:
+    import fitz
+except ImportError:
+    print(json.dumps({'error': 'PyMuPDF not installed. Run: pip install PyMuPDF'}))
+    sys.exit(0)
+
+pdf_path  = sys.argv[1]
+max_pages = int(sys.argv[2]) if len(sys.argv) > 2 else 15
+
+try:
+    doc = fitz.open(pdf_path)
+except Exception as e:
+    print(json.dumps({'error': f'Cannot open PDF: {e}'}))
+    sys.exit(0)
+
+results = []
+for i in range(min(len(doc), max_pages)):
+    page = doc[i]
+    mat  = fitz.Matrix(2.5, 2.5)  # 2.5x resolution — quality/speed balance
+    pix  = page.get_pixmap(matrix=mat, colorspace=fitz.csGRAY)
+
+    fd, img_path = tempfile.mkstemp(suffix='.png')
+    os.close(fd)
+    fd, out_base = tempfile.mkstemp(suffix='.txt')
+    os.close(fd)
+    out_base = out_base[:-4]  # tesseract appends .txt itself
+
+    try:
+        pix.save(img_path)
+        subprocess.run(
+            ['tesseract', img_path, out_base, '-l', 'eng', '--psm', '1'],
+            capture_output=True, timeout=45
+        )
+        txt_file = out_base + '.txt'
+        if os.path.exists(txt_file):
+            with open(txt_file, 'r', encoding='utf-8', errors='replace') as f:
+                text = f.read().strip()
+            os.unlink(txt_file)
+            if text:
+                results.append({'page': i + 1, 'text': text})
+    finally:
+        if os.path.exists(img_path):
+            os.unlink(img_path)
+
+total_pages = len(doc)
+doc.close()
+print(json.dumps({'pages': results, 'total': total_pages}))
+`;
+
+  const scriptPath = path.join(os.tmpdir(), `_ocr_pdf_${process.pid}.py`);
+  await fsp.writeFile(scriptPath, script, 'utf-8');
+
+  try {
+    const raw = await new Promise((resolve, reject) => {
+      exec(`python3 "${scriptPath}" "${filePath}" ${maxPages}`,
+        { timeout: 180000, maxBuffer: 10 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          if (err && !stdout) reject(new Error(stderr || err.message));
+          else resolve(stdout || '');
+        }
+      );
+    });
+
+    const result = JSON.parse(raw.trim());
+    if (result.error) throw new Error(result.error);
+
+    const pageTexts = result.pages
+      .filter((p) => p.text && p.text.trim().length > 5)
+      .map((p) => `=== Page ${p.page} ===\n${p.text}`);
+
+    if (pageTexts.length === 0) throw new Error('OCR produced no text (possibly blank pages)');
+    return `[PDF OCR: ${result.total} pages — ${path.basename(filePath)}]\n\n${pageTexts.join('\n\n')}`;
+  } finally {
+    await fsp.unlink(scriptPath).catch(() => {});
+  }
+}
+
+/**
+ * Read PDF: try text extraction first, fall back to OCR if the PDF is scanned.
+ */
+async function readPDF(filePath, opts = {}) {
+  const { startPage, endPage, password } = opts;
+  const { PDFParse } = require('pdf-parse');
+
+  const rawData = await fsp.readFile(filePath);
+  const uint8   = new Uint8Array(rawData);
+
+  const parseOpts = {};
+  const sfUrl = getStandardFontDataUrl();
+  if (sfUrl)   parseOpts.standardFontDataUrl = sfUrl;
+  if (password) parseOpts.password = password;
+  if (endPage)  parseOpts.max = endPage;
+
+  // Suppress pdfjs-dist v5 font warning (non-critical; text extraction still works)
+  const _origWarn = console.warn;
+  console.warn = (...a) => { if (String(a[0]).includes('standardFontDataUrl')) return; _origWarn(...a); };
+
+  let textResult, info;
+  try {
+    const parser = new PDFParse(uint8, parseOpts);
+    await parser.load();
+    info       = await parser.getInfo();
+    textResult = await parser.getText();
+    parser.destroy();
+  } catch (parseErr) {
+    // pdf-parse failed entirely (corrupted, encrypted without password, etc.)
+    // Try OCR directly
+    console.warn = _origWarn;
+    try {
+      return await ocrPDF(filePath);
+    } catch (ocrErr) {
+      throw new Error(`PDF unreadable: ${parseErr.message}. OCR also failed: ${ocrErr.message}`);
+    }
+  } finally {
+    console.warn = _origWarn;
+  }
+
+  const totalPages   = info?.total || 1;
+  let   fullText     = textResult?.text || '';
+
+  // Apply page range filter if requested
+  if ((startPage || endPage) && textResult?.pages?.length > 0) {
+    const s = (startPage || 1) - 1;
+    const e = endPage || textResult.pages.length;
+    fullText = textResult.pages
+      .slice(s, e)
+      .map((p, i) => `--- Page ${s + i + 1} ---\n${p.text}`)
+      .join('\n\n');
+  }
+
+  const charsPerPage = fullText.replace(/[\s\-–—|]/g, '').length / totalPages;
+
+  // Scanned PDF — text-layer is empty or just boilerplate; try OCR
+  if (charsPerPage < 30) {
+    try {
+      const ocrText = await ocrPDF(filePath, endPage || 30);
+      return ocrText;
+    } catch (ocrErr) {
+      // tesseract or fitz not available — return sparse text with explanation
+      return [
+        `[PDF: ${totalPages} page(s) — ${path.basename(filePath)}]`,
+        `NOTE: This appears to be a scanned (image-based) PDF. No selectable text found.`,
+        `To read scanned PDFs, install: pip install PyMuPDF && brew install tesseract`,
+        fullText.trim() || '(no text layer)',
+      ].join('\n');
+    }
+  }
+
+  return `[PDF: ${totalPages} pages — ${path.basename(filePath)}]\n\n${fullText.trim()}`;
+}
+
 function shellExec(cmd, timeout = 60000) {
   return new Promise((resolve, reject) => {
     exec(cmd, { timeout, maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
@@ -88,52 +260,7 @@ const OfficeTools = [
     async execute({ path: filePath, startPage, endPage, password }) {
       if (!filePath) throw new Error('path is required');
       const resolved = resolvePath(filePath);
-
-      try {
-        // pdf-parse v2.x API: class-based with Uint8Array input
-        const { PDFParse } = require('pdf-parse');
-        const rawData = await fsp.readFile(resolved);
-        const uint8 = new Uint8Array(rawData);
-
-        const opts = {};
-        if (password) opts.password = password;
-
-        const parser = new PDFParse(uint8, opts);
-        await parser.load();
-
-        const info = await parser.getInfo();
-        const textResult = await parser.getText();
-        parser.destroy();
-
-        const totalPages = info.total || textResult.total || 0;
-
-        // Handle page range filtering
-        let text;
-        if ((startPage || endPage) && textResult.pages && textResult.pages.length > 0) {
-          const start = (startPage || 1) - 1;
-          const end = endPage || textResult.pages.length;
-          text = textResult.pages
-            .slice(start, end)
-            .map((p, i) => `--- Page ${start + i + 1} ---\n${p.text}`)
-            .join('\n\n');
-        } else {
-          text = textResult.text || '';
-        }
-
-        return `[PDF: ${totalPages} pages — ${path.basename(resolved)}]\n\n${text.trim()}`;
-      } catch (err) {
-        // Fallback to pdftotext CLI (poppler)
-        try {
-          const extra = password ? `-upw "${password}"` : '';
-          const pageRange = (startPage || endPage)
-            ? `-f ${startPage || 1} -l ${endPage || 9999}`
-            : '';
-          const text = await shellExec(`pdftotext ${extra} ${pageRange} "${resolved}" -`);
-          return `[PDF via pdftotext — ${path.basename(resolved)}]\n\n${text}`;
-        } catch {
-          throw new Error(`PDF extraction failed: ${err.message}. Install poppler (brew install poppler) for fallback.`);
-        }
-      }
+      return await readPDF(resolved, { startPage, endPage, password });
     },
   },
 
