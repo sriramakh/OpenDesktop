@@ -4,6 +4,18 @@ const path = require('path');
 const { glob } = require('glob');
 const { exec } = require('child_process');
 
+// pdfjs-dist (used by pdf-parse v2) expects browser globals — polyfill for Node.js
+if (typeof globalThis.DOMMatrix === 'undefined') {
+  globalThis.DOMMatrix = class DOMMatrix {
+    constructor(init) {
+      const v = Array.isArray(init) ? init : [1, 0, 0, 1, 0, 0];
+      this.a = v[0]; this.b = v[1]; this.c = v[2];
+      this.d = v[3]; this.e = v[4]; this.f = v[5];
+      this.is2D = true; this.isIdentity = false;
+    }
+  };
+}
+
 // Extension → category mapping for fs_organize
 const EXT_CATEGORIES = {
   // Images
