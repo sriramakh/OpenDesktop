@@ -28,7 +28,7 @@ const MODEL_CATALOG = {
   ollama: {
     label: 'Ollama (Local)',
     requiresKey: false,
-    endpoint: 'http://localhost:11434',
+    endpoint: 'http://127.0.0.1:11434',
     models: [
       { id: 'llama3.1',           name: 'Llama 3.1 8B',        ctx: 131072 },
       { id: 'llama3.1:70b',       name: 'Llama 3.1 70B',       ctx: 131072 },
@@ -112,7 +112,7 @@ function getModelCatalog() { return MODEL_CATALOG; }
 
 let settings = {
   provider:    'ollama',
-  model:       'llama3',
+  model:       'llama3.2',
   temperature: 0.7,
   maxTokens:   8096,
 };

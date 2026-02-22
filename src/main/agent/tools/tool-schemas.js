@@ -435,6 +435,7 @@ const TOOL_SCHEMAS = {
       data: {
         type: 'object',
         description: 'Form data as a JSON object.',
+        additionalProperties: true,
       },
       contentType: {
         type: 'string',
@@ -493,10 +494,12 @@ const TOOL_SCHEMAS = {
       body: {
         type: 'object',
         description: 'Request body (for POST/PUT/PATCH).',
+        additionalProperties: true,
       },
       headers: {
         type: 'object',
         description: 'Additional HTTP headers.',
+        additionalProperties: true,
       },
     },
     required: ['url'],
@@ -569,6 +572,7 @@ const TOOL_SCHEMAS = {
       schema: {
         type: 'object',
         description: 'Optional JSON schema describing the data structure to extract.',
+        additionalProperties: true,
       },
       instructions: {
         type: 'string',
@@ -625,6 +629,7 @@ const TOOL_SCHEMAS = {
       customRules: {
         type: 'object',
         description: 'Override or extend default extension→category mapping. E.g. {".log": "Logs", ".conf": "Config"}.',
+        additionalProperties: { type: 'string' },
       },
     },
     required: ['path'],
@@ -733,11 +738,26 @@ const TOOL_SCHEMAS = {
       sheetData: {
         type: 'object',
         description: 'Object mapping sheet names to 2D arrays: {"Sheet1": [[header1, header2], [val1, val2]], "Sheet2": [...]}. Fastest way to write bulk data.',
+        additionalProperties: true,
       },
       operations: {
         type: 'array',
         description: 'Array of cell operations: [{type: "set_cell", sheet: "Sheet1", cell: "A1", value: 42}, {type: "set_cell", sheet: "Sheet1", cell: "B1", formula: "SUM(A1:A10)"}, {type: "set_range", sheet: "Sheet1", range: "A1", data: [[1,2],[3,4]]}, {type: "add_sheet", name: "Summary"}, {type: "auto_sum", sheet: "Sheet1", sourceRange: "B2:B10", targetCell: "B11"}].',
-        items: { type: 'object' },
+        items: {
+          type: 'object',
+          properties: {
+            type:        { type: 'string', description: "Operation type: 'set_cell', 'set_range', 'add_sheet', or 'auto_sum'." },
+            sheet:       { type: 'string', description: 'Target sheet name.' },
+            cell:        { type: 'string', description: "Cell address (e.g. 'A1'). Used with set_cell." },
+            value:       { type: 'string', description: 'Cell value. Used with set_cell.' },
+            formula:     { type: 'string', description: "Excel formula (e.g. '=SUM(A1:A10)'). Used with set_cell." },
+            range:       { type: 'string', description: "Starting cell for set_range (e.g. 'A1')." },
+            data:        { type: 'array', description: '2D array of values for set_range.', items: { type: 'array', items: { type: 'string' } } },
+            name:        { type: 'string', description: 'Sheet name for add_sheet.' },
+            sourceRange: { type: 'string', description: "Source range for auto_sum (e.g. 'B2:B10')." },
+            targetCell:  { type: 'string', description: "Target cell for auto_sum (e.g. 'B11')." },
+          },
+        },
       },
     },
     required: ['path'],
@@ -775,6 +795,11 @@ const TOOL_SCHEMAS = {
       pivotConfig: {
         type: 'object',
         description: "Pivot table config: {groupByCol: 1, valueCol: 2, aggregation: 'SUM'}. Column numbers are 1-indexed.",
+        properties: {
+          groupByCol:  { type: 'number', description: 'Column number to group by (1-indexed).' },
+          valueCol:    { type: 'number', description: 'Column number to aggregate (1-indexed).' },
+          aggregation: { type: 'string', description: "Aggregation function: 'SUM', 'COUNT', 'AVG'." },
+        },
       },
     },
     required: ['path'],
@@ -846,7 +871,7 @@ const TOOL_SCHEMAS = {
       rows: {
         type: 'array',
         description: '2D array of data. First row should be headers. Example: [["Name","Age"],["Alice",30],["Bob",25]].',
-        items: { type: 'array' },
+        items: { type: 'array', items: { type: 'string' } },
       },
       delimiter: {
         type: 'string',

@@ -44,7 +44,7 @@ class AgentCore {
 
     this.settings = {
       llmProvider:     'ollama',
-      llmModel:        'llama3',
+      llmModel:        'llama3.2',
       maxTurns:        50,
       autoApproveRead: true,
       autoApproveWrite: false,
