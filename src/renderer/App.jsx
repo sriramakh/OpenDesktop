@@ -10,7 +10,7 @@ const api = window.api;
 
 export default function App() {
   const [messages, setMessages] = useState([]);
-  const [activePersona, setActivePersona] = useState('planner');
+  const [activePersona, setActivePersona] = useState('auto');
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentSteps, setCurrentSteps] = useState(null);
   const [approvalRequest, setApprovalRequest] = useState(null);

@@ -1,30 +1,187 @@
 const { exec } = require('child_process');
 const os = require('os');
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Fuzzy match score: how similar two strings are (0-1).
+ * Simple bigram similarity — good enough for app name typos.
+ */
+function fuzzyScore(a, b) {
+  a = a.toLowerCase().replace(/[^a-z0-9]/g, '');
+  b = b.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return a.includes(b) || b.includes(a) ? 0.5 : 0;
+
+  const bigramsA = new Set();
+  for (let i = 0; i < a.length - 1; i++) bigramsA.add(a.slice(i, i + 2));
+  let matches = 0;
+  for (let i = 0; i < b.length - 1; i++) {
+    if (bigramsA.has(b.slice(i, i + 2))) matches++;
+  }
+  return (2 * matches) / (a.length - 1 + b.length - 1);
+}
+
+/**
+ * Find an application by name on macOS.
+ * Searches /Applications, ~/Applications, /System/Applications.
+ * Returns the best fuzzy match.
+ */
+async function findMacApp(appName) {
+  const searchDirs = [
+    '/Applications',
+    path.join(os.homedir(), 'Applications'),
+    '/System/Applications',
+    '/System/Applications/Utilities',
+  ];
+
+  const candidates = [];
+
+  for (const dir of searchDirs) {
+    try {
+      const entries = fs.readdirSync(dir);
+      for (const entry of entries) {
+        if (entry.endsWith('.app')) {
+          const name = entry.replace(/\.app$/, '');
+          const score = fuzzyScore(appName, name);
+          candidates.push({ name, path: path.join(dir, entry), score });
+        }
+      }
+    } catch { /* dir doesn't exist */ }
+  }
+
+  // Also check if the target is a running process name (for non-.app things like Ollama)
+  // Sort by score descending
+  candidates.sort((a, b) => b.score - a.score);
+
+  // Return best match if score is reasonable (> 0.3)
+  if (candidates.length > 0 && candidates[0].score > 0.3) {
+    return candidates[0];
+  }
+
+  return null;
+}
 
 const AppControlTools = [
   {
     name: 'app_open',
     category: 'app-control',
-    description: 'Open an application, file, or URL using the system default handler. Can open any file (e.g. PDFs, images, documents) with its default app. Use full file paths like /Users/name/Desktop/report.pdf or app names like "Safari", "Finder".',
+    description: 'Open an application, file, or URL. For apps, just use the name (e.g. "Safari", "Finder", "Ollama", "Visual Studio Code") — the system will find it automatically even with typos. For files, use the full absolute path. For URLs, use the full URL with https://.',
     params: ['target', 'app'],
     permissionLevel: 'sensitive',
     async execute({ target, app }) {
       if (!target) throw new Error('target is required');
 
-      let cmd;
       const platform = process.platform;
 
+      // Detect what kind of target this is
+      const isURL = /^https?:\/\//i.test(target);
+      const isFilePath = target.startsWith('/') || target.startsWith('~') || target.startsWith('.');
+      const isAppName = !isURL && !isFilePath;
+
       if (platform === 'darwin') {
-        cmd = app ? `open -a "${app}" "${target}"` : `open "${target}"`;
+        // If it's an app name, try to find it intelligently
+        if (isAppName && !app) {
+          // First try: direct `open -a` which handles exact names
+          try {
+            return await runShell(`open -a "${target}"`);
+          } catch (directErr) {
+            // Direct open failed — try fuzzy search
+            const found = await findMacApp(target);
+            if (found) {
+              try {
+                return await runShell(`open -a "${found.name}"`);
+              } catch {
+                // Try opening the .app bundle directly
+                return await runShell(`open "${found.path}"`);
+              }
+            }
+
+            // Last resort: try mdfind (Spotlight) to locate the app
+            try {
+              const spotlightResult = await runShell(
+                `mdfind "kMDItemKind == 'Application'" -name "${target}" | head -3`
+              );
+              const appPaths = spotlightResult.trim().split('\n').filter(Boolean);
+              if (appPaths.length > 0) {
+                return await runShell(`open "${appPaths[0]}"`);
+              }
+            } catch { /* spotlight failed */ }
+
+            throw new Error(
+              `Could not find application "${target}". ` +
+              (found ? `Did you mean "${found.name}"? ` : '') +
+              `Make sure it's installed in /Applications or ~/Applications.`
+            );
+          }
+        }
+
+        // File path or URL
+        const cmd = app ? `open -a "${app}" "${target}"` : `open "${target}"`;
+        return runShell(cmd);
       } else if (platform === 'linux') {
-        cmd = app ? `${app} "${target}"` : `xdg-open "${target}"`;
+        const cmd = app ? `${app} "${target}"` : `xdg-open "${target}"`;
+        return runShell(cmd);
       } else if (platform === 'win32') {
-        cmd = app ? `start "" "${app}" "${target}"` : `start "" "${target}"`;
+        const cmd = app ? `start "" "${app}" "${target}"` : `start "" "${target}"`;
+        return runShell(cmd);
       } else {
         throw new Error(`Unsupported platform: ${platform}`);
       }
+    },
+  },
 
-      return runShell(cmd);
+  {
+    name: 'app_find',
+    category: 'app-control',
+    description: 'Search for installed applications by name. Handles typos and partial matches. Returns the best matching app names and paths. Use this to verify an app exists before opening it.',
+    params: ['query'],
+    permissionLevel: 'safe',
+    async execute({ query }) {
+      if (!query) throw new Error('query is required');
+      const platform = process.platform;
+
+      if (platform === 'darwin') {
+        const searchDirs = [
+          '/Applications',
+          path.join(os.homedir(), 'Applications'),
+          '/System/Applications',
+          '/System/Applications/Utilities',
+        ];
+
+        const candidates = [];
+        for (const dir of searchDirs) {
+          try {
+            const entries = fs.readdirSync(dir);
+            for (const entry of entries) {
+              if (entry.endsWith('.app')) {
+                const name = entry.replace(/\.app$/, '');
+                const score = fuzzyScore(query, name);
+                if (score > 0.2) {
+                  candidates.push({ name, path: path.join(dir, entry), score: Math.round(score * 100) });
+                }
+              }
+            }
+          } catch { /* skip */ }
+        }
+
+        candidates.sort((a, b) => b.score - a.score);
+        const top = candidates.slice(0, 10);
+
+        if (top.length === 0) {
+          return `No applications found matching "${query}".`;
+        }
+
+        return `Applications matching "${query}":\n` +
+          top.map((c) => `  ${c.name} (${c.score}% match) — ${c.path}`).join('\n');
+      }
+
+      // Linux/Windows fallback
+      return await runShell(
+        platform === 'linux'
+          ? `find /usr/share/applications -name "*.desktop" | xargs grep -l -i "${query}" 2>/dev/null | head -10`
+          : `powershell -command "Get-StartApps | Where-Object { $_.Name -like '*${query}*' } | Select-Object Name, AppID | Format-Table -AutoSize"`
+      );
     },
   },
 

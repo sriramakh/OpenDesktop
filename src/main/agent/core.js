@@ -25,7 +25,7 @@ class AgentCore {
       maxSteps: 20,
       autoApproveRead: true,
       autoApproveWrite: false,
-      defaultPersona: 'planner',
+      defaultPersona: 'auto',
       temperature: 0.7,
       maxTokens: 4096,
     };
@@ -94,7 +94,13 @@ class AgentCore {
   async handleUserMessage(message, personaName) {
     this.cancelled = false;
     const taskId = uuidv4();
-    const persona = this.personaManager.get(personaName || this.settings.defaultPersona);
+
+    // Auto-select persona if not explicitly chosen or set to 'auto'
+    let resolvedPersonaName = personaName || this.settings.defaultPersona;
+    if (resolvedPersonaName === 'auto' || !personaName) {
+      resolvedPersonaName = await this.autoSelectPersona(message);
+    }
+    const persona = this.personaManager.get(resolvedPersonaName);
 
     this.currentTask = {
       id: taskId,
@@ -130,11 +136,18 @@ class AgentCore {
         message: 'Decomposing task...',
       });
 
+      // Build conversation history for context continuity
+      const conversationHistory = this.memory.getShortTermContext()
+        .slice(-10)
+        .map((e) => `[${e.role}]: ${(e.content || '').slice(0, 300)}`)
+        .join('\n');
+
       const plan = await this.planner.decompose(message, {
         persona,
         context: activeContext,
         memories: relevantMemories,
         availableTools: this.toolRegistry.listTools(),
+        conversationHistory,
       });
 
       this.emit('agent:step-update', {
@@ -262,6 +275,44 @@ class AgentCore {
       });
       return { taskId, error: err.message };
     }
+  }
+
+  /**
+   * Auto-select the best persona based on user message intent.
+   * Uses fast keyword heuristics first, falls back to LLM classification.
+   */
+  async autoSelectPersona(message) {
+    const msg = message.toLowerCase();
+
+    // Fast heuristic classification
+    const executorPatterns = /\b(create|make|move|copy|delete|rename|write|save|mkdir|install|run|execute|open|launch|start|organize|sort|clean|set up|init)\b/;
+    const researcherPatterns = /\b(search|find info|research|look up|what is|who is|explain|compare|difference between|how does|why does|tell me about|summarize|documentation)\b/;
+    const plannerPatterns = /\b(plan|design|architect|break down|strategy|roadmap|outline|step.?by.?step|how (should|can|do) (i|we)|approach|workflow)\b/;
+
+    if (executorPatterns.test(msg)) return 'executor';
+    if (researcherPatterns.test(msg)) return 'researcher';
+    if (plannerPatterns.test(msg)) return 'planner';
+
+    // LLM fallback for ambiguous messages
+    try {
+      const classifyPrompt = `Classify this user request into exactly one category. Reply with ONLY the category name, nothing else.
+
+Categories:
+- executor: User wants to DO something (create files, move files, open apps, run commands, organize folders)
+- researcher: User wants to KNOW something (search, lookup, explain, compare, summarize)
+- planner: User wants to PLAN something (design, architect, strategize, outline steps)
+
+User request: "${message.slice(0, 200)}"
+
+Category:`;
+      const result = await callLLM('You are a classifier. Reply with a single word.', classifyPrompt);
+      const cleaned = result.trim().toLowerCase().replace(/[^a-z]/g, '');
+      if (['executor', 'researcher', 'planner'].includes(cleaned)) return cleaned;
+    } catch (err) {
+      console.error('[AgentCore] autoSelectPersona LLM error:', err.message);
+    }
+
+    return 'executor'; // Default to executor for action-oriented tasks
   }
 
   /**

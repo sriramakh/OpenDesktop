@@ -16,10 +16,12 @@ import {
   Clock,
   User,
   Bot,
+  Sparkles,
 } from 'lucide-react';
 
-const PERSONA_ICONS = { planner: Brain, executor: Zap, researcher: Search, custom: Settings };
+const PERSONA_ICONS = { auto: Sparkles, planner: Brain, executor: Zap, researcher: Search, custom: Settings };
 const PERSONA_COLORS = {
+  auto: 'from-violet-500 to-purple-600',
   planner: 'from-indigo-500 to-violet-600',
   executor: 'from-emerald-500 to-teal-600',
   researcher: 'from-amber-500 to-orange-600',
@@ -138,6 +140,11 @@ export default function ChatPanel({ messages, isProcessing, currentSteps, onSend
 
 function WelcomeScreen({ activePersona, onSend }) {
   const suggestions = {
+    auto: [
+      'Organize my Downloads folder by file type',
+      'Open Ollama and show my system info',
+      'Find all PDF files on my Desktop and summarize the first one',
+    ],
     planner: [
       'Show me what\'s on my Desktop',
       'List all files in my Downloads folder',

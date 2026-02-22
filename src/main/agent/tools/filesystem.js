@@ -2,12 +2,180 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const { glob } = require('glob');
+const { exec } = require('child_process');
+
+// Binary file extensions that need special extraction
+const BINARY_EXTENSIONS = {
+  '.pdf': 'pdf',
+  '.docx': 'docx',
+  '.doc': 'doc',
+  '.xlsx': 'xlsx',
+  '.xls': 'xls',
+  '.pptx': 'pptx',
+  '.ppt': 'ppt',
+  '.rtf': 'rtf',
+  '.odt': 'odt',
+  '.ods': 'ods',
+  '.odp': 'odp',
+  '.pages': 'pages',
+  '.numbers': 'numbers',
+  '.key': 'keynote',
+};
+
+function shellExec(cmd, timeout = 30000) {
+  return new Promise((resolve, reject) => {
+    exec(cmd, { timeout, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr || err.message));
+      else resolve(stdout);
+    });
+  });
+}
+
+/**
+ * Extract readable text from binary document files.
+ * Tries multiple strategies in order of preference.
+ */
+async function extractBinaryContent(filePath, ext) {
+  const platform = process.platform;
+  const strategies = [];
+
+  // macOS textutil handles doc, docx, rtf, odt, pages, etc.
+  if (platform === 'darwin' && ['.doc', '.docx', '.rtf', '.odt', '.pages'].includes(ext)) {
+    strategies.push(async () => {
+      return await shellExec(`textutil -convert txt -stdout "${filePath}"`);
+    });
+  }
+
+  // PDF extraction
+  if (ext === '.pdf') {
+    // Try pdftotext (poppler)
+    strategies.push(async () => {
+      return await shellExec(`pdftotext "${filePath}" -`);
+    });
+    // Fallback: macOS mdimport metadata
+    if (platform === 'darwin') {
+      strategies.push(async () => {
+        return await shellExec(`mdimport -d2 "${filePath}" 2>&1 | head -500`);
+      });
+    }
+    // Fallback: python
+    strategies.push(async () => {
+      const pyScript = `
+import sys
+try:
+    import PyPDF2
+    reader = PyPDF2.PdfReader("${filePath.replace(/"/g, '\\"')}")
+    for page in reader.pages[:20]:
+        text = page.extract_text()
+        if text: print(text)
+except ImportError:
+    try:
+        import fitz
+        doc = fitz.open("${filePath.replace(/"/g, '\\"')}")
+        for page in doc[:20]:
+            print(page.get_text())
+    except ImportError:
+        print("[ERROR] No PDF library available. Install: pip install PyPDF2 or pip install PyMuPDF")
+`;
+      return await shellExec(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`);
+    });
+  }
+
+  // Excel extraction
+  if (['.xlsx', '.xls'].includes(ext)) {
+    // macOS: try using python with openpyxl
+    strategies.push(async () => {
+      const pyScript = ext === '.xlsx' ? `
+import sys
+try:
+    import openpyxl
+    wb = openpyxl.load_workbook("${filePath.replace(/"/g, '\\"')}", read_only=True, data_only=True)
+    for sheet_name in wb.sheetnames[:5]:
+        ws = wb[sheet_name]
+        print(f"\\n=== Sheet: {sheet_name} ===")
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if i > 100: print("... (truncated)"); break
+            print("\\t".join(str(c) if c is not None else "" for c in row))
+except ImportError:
+    print("[ERROR] openpyxl not available. Install: pip install openpyxl")
+` : `
+import sys
+try:
+    import xlrd
+    wb = xlrd.open_workbook("${filePath.replace(/"/g, '\\"')}")
+    for sheet in wb.sheets()[:5]:
+        print(f"\\n=== Sheet: {sheet.name} ===")
+        for i in range(min(sheet.nrows, 100)):
+            print("\\t".join(str(sheet.cell_value(i, j)) for j in range(sheet.ncols)))
+except ImportError:
+    print("[ERROR] xlrd not available. Install: pip install xlrd")
+`;
+      return await shellExec(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`);
+    });
+  }
+
+  // PowerPoint extraction
+  if (['.pptx', '.ppt'].includes(ext)) {
+    strategies.push(async () => {
+      const pyScript = `
+import sys
+try:
+    from pptx import Presentation
+    prs = Presentation("${filePath.replace(/"/g, '\\"')}")
+    for i, slide in enumerate(prs.slides):
+        print(f"\\n=== Slide {i+1} ===")
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for para in shape.text_frame.paragraphs:
+                    text = para.text.strip()
+                    if text: print(text)
+except ImportError:
+    print("[ERROR] python-pptx not available. Install: pip install python-pptx")
+`;
+      return await shellExec(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`);
+    });
+    // macOS textutil fallback for .ppt
+    if (platform === 'darwin' && ext === '.ppt') {
+      strategies.push(async () => {
+        return await shellExec(`textutil -convert txt -stdout "${filePath}"`);
+      });
+    }
+  }
+
+  // macOS Numbers
+  if (ext === '.numbers' && platform === 'darwin') {
+    strategies.push(async () => {
+      return await shellExec(`textutil -convert txt -stdout "${filePath}"`);
+    });
+  }
+
+  // Generic fallback: strings command (extracts readable strings from any binary)
+  strategies.push(async () => {
+    const output = await shellExec(`strings "${filePath}" | head -500`);
+    return `[Extracted raw strings from ${path.basename(filePath)}]\n${output}`;
+  });
+
+  // Try each strategy in order
+  for (const strategy of strategies) {
+    try {
+      const result = await strategy();
+      if (result && result.trim().length > 10) {
+        return result.trim();
+      }
+    } catch (err) {
+      // Try next strategy
+      continue;
+    }
+  }
+
+  throw new Error(`Unable to extract text from ${path.basename(filePath)}. File type: ${ext}. Try installing the appropriate tools (pdftotext for PDF, python3 with openpyxl/PyPDF2/python-pptx for Office files).`);
+}
 
 const FilesystemTools = [
   {
     name: 'fs_read',
     category: 'filesystem',
-    description: 'Read the full contents of a file. Use absolute paths like /Users/name/Desktop/file.txt or ~/file.txt. If the target is a directory, returns a listing instead.',
+    description: 'Read the full contents of a file. Supports text files AND binary documents (PDF, DOCX, XLSX, PPTX, etc.) — binary files are automatically extracted to readable text. Use absolute paths. If the target is a directory, returns a listing instead.',
     params: ['path', 'encoding', 'offset', 'limit'],
     permissionLevel: 'safe',
     async execute({ path: filePath, encoding = 'utf-8', offset, limit }) {
@@ -31,6 +199,12 @@ const FilesystemTools = [
 
       if (stat.size > 10 * 1024 * 1024) {
         throw new Error(`File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB). Max 10MB.`);
+      }
+
+      // Check if this is a binary document that needs extraction
+      const ext = path.extname(resolved).toLowerCase();
+      if (BINARY_EXTENSIONS[ext]) {
+        return await extractBinaryContent(resolved, ext);
       }
 
       const content = await fsp.readFile(resolved, encoding);
@@ -216,20 +390,97 @@ const FilesystemTools = [
   {
     name: 'fs_move',
     category: 'filesystem',
-    description: 'Move or rename a file or directory',
+    description: 'Move or rename files/directories. Supports glob patterns like "*.jpg" or "**/*.png" in the source path to move multiple files at once. If destination is an existing directory, files are moved INTO it. Use absolute paths.',
     params: ['source', 'destination'],
     permissionLevel: 'dangerous',
     async execute({ source, destination }) {
       if (!source || !destination) throw new Error('source and destination are required');
-      const resolvedSrc = resolvePath(source);
       const resolvedDst = resolvePath(destination);
-      guardPath(resolvedSrc);
       guardPath(resolvedDst);
 
-      await fsp.mkdir(path.dirname(resolvedDst), { recursive: true });
-      await fsp.rename(resolvedSrc, resolvedDst);
+      // Check if source contains glob characters
+      const hasGlob = /[*?{}\[\]]/.test(source);
 
-      return `Moved: ${resolvedSrc} → ${resolvedDst}`;
+      if (hasGlob) {
+        // Extract the directory part and the glob pattern
+        const resolvedSrc = resolvePath(source);
+        const srcDir = path.dirname(resolvedSrc);
+        const pattern = path.basename(resolvedSrc);
+
+        // Also try the full path as a glob pattern
+        const globPattern = source.startsWith('~') ? resolvePath(source) : source;
+        const parentDir = path.dirname(globPattern);
+        const resolvedParent = resolvePath(parentDir);
+        guardPath(resolvedParent);
+
+        const matches = await glob(path.basename(globPattern), {
+          cwd: resolvedParent,
+          nodir: false,
+          dot: false,
+          absolute: false,
+        });
+
+        if (matches.length === 0) {
+          throw new Error(`No files matched pattern: ${source}`);
+        }
+
+        // Ensure destination directory exists
+        await fsp.mkdir(resolvedDst, { recursive: true });
+
+        const moved = [];
+        const errors = [];
+        for (const match of matches) {
+          const fullSrc = path.join(resolvedParent, match);
+          const fullDst = path.join(resolvedDst, path.basename(match));
+          guardPath(fullSrc);
+          try {
+            await fsp.rename(fullSrc, fullDst);
+            moved.push(path.basename(match));
+          } catch (renameErr) {
+            // rename fails across devices — fall back to copy+delete
+            try {
+              await fsp.copyFile(fullSrc, fullDst);
+              await fsp.unlink(fullSrc);
+              moved.push(path.basename(match));
+            } catch (copyErr) {
+              errors.push(`${path.basename(match)}: ${copyErr.message}`);
+            }
+          }
+        }
+
+        let result = `Moved ${moved.length} file(s) to ${resolvedDst}`;
+        if (moved.length > 0 && moved.length <= 20) result += `:\n${moved.join('\n')}`;
+        if (errors.length > 0) result += `\nErrors (${errors.length}):\n${errors.join('\n')}`;
+        return result;
+      }
+
+      // Single file/directory move
+      const resolvedSrc = resolvePath(source);
+      guardPath(resolvedSrc);
+
+      // If destination is an existing directory, move source INTO it
+      const dstStat = await fsp.stat(resolvedDst).catch(() => null);
+      let finalDst = resolvedDst;
+      if (dstStat && dstStat.isDirectory()) {
+        finalDst = path.join(resolvedDst, path.basename(resolvedSrc));
+      } else {
+        await fsp.mkdir(path.dirname(resolvedDst), { recursive: true });
+      }
+
+      try {
+        await fsp.rename(resolvedSrc, finalDst);
+      } catch (renameErr) {
+        // Cross-device fallback: copy then delete
+        const srcStat = await fsp.stat(resolvedSrc);
+        if (srcStat.isFile()) {
+          await fsp.copyFile(resolvedSrc, finalDst);
+          await fsp.unlink(resolvedSrc);
+        } else {
+          throw renameErr;
+        }
+      }
+
+      return `Moved: ${resolvedSrc} → ${finalDst}`;
     },
   },
 

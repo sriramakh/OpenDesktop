@@ -2,7 +2,7 @@ const { callLLM } = require('./llm');
 const os = require('os');
 
 class TaskPlanner {
-  async decompose(userMessage, { persona, context, memories, availableTools }) {
+  async decompose(userMessage, { persona, context, memories, availableTools, conversationHistory }) {
     const toolDescriptions = availableTools
       .map((t) => {
         const params = (t.params || []).join(', ');
@@ -19,13 +19,18 @@ class TaskPlanner {
       ? `\nCurrent environment:\n- Platform: ${context.platform || 'unknown'} (${context.arch || '?'})\n- Home directory: ${homeDir}\n- Working directory: ${context.cwd || 'unknown'}\n- Active app: ${context.activeApp || 'unknown'}\n- Desktop path: ${homeDir}/Desktop\n- Documents path: ${homeDir}/Documents\n- Downloads path: ${homeDir}/Downloads`
       : '';
 
+    // Conversation history for follow-up context
+    const convCtx = conversationHistory
+      ? `\nRecent conversation (use this to understand follow-up questions — "it", "that", "those", "the file", etc. refer to items from this history):\n${conversationHistory}`
+      : '';
+
     const systemPrompt = `${persona.systemPrompt}
 
 You are a task planner that decomposes user requests into concrete, executable tool-call steps.
 
 Available tools:
 ${toolDescriptions}
-${memoryContext}${activeCtx}
+${memoryContext}${activeCtx}${convCtx}
 
 You MUST respond with a valid JSON object in this exact format:
 {
@@ -51,7 +56,11 @@ CRITICAL RULES:
 7. For running shell commands, use system_exec with the exact command string.
 8. Keep steps atomic and ordered. Maximum 10 steps. Prefer fewer.
 9. For simple questions that don't need tools, use a single llm_query step.
-10. Always use absolute paths starting with / or ~. Never use relative paths unless appropriate.`;
+10. Always use absolute paths starting with / or ~. Never use relative paths unless appropriate.
+11. IMPORTANT: If the user's message is a follow-up (e.g. "tell me more", "what about X", "open that file"), use the conversation history above to understand what they're referring to. Resolve pronouns and references to concrete values.
+12. For opening applications on macOS, use app_open with just the app name (e.g. "Safari", "Finder", "Ollama") — NOT a file path. The system will find the app automatically.
+13. For moving files with patterns like *.jpg, use fs_move with the glob pattern as source (e.g. source: "${homeDir}/Downloads/*.jpg").
+14. For reading binary files (PDF, DOCX, XLSX, PPTX), use fs_read — the system handles extraction automatically.`;
 
     try {
       const response = await callLLM(systemPrompt, userMessage);

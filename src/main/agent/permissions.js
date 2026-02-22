@@ -21,6 +21,7 @@ const TOOL_PERMISSION_MAP = {
   system_clipboard_read: 'safe',
   system_notify: 'safe',
   app_list: 'safe',
+  app_find: 'safe',
   app_screenshot: 'safe',
 
   // Sensitive: write operations, launching apps

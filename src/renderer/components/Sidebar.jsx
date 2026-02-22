@@ -18,9 +18,11 @@ import {
   Monitor as MonitorIcon,
   MessageSquare,
   Code,
+  Sparkles,
 } from 'lucide-react';
 
 const PERSONA_ICONS = {
+  auto: Sparkles,
   planner: Brain,
   executor: Zap,
   researcher: Search,
@@ -28,6 +30,7 @@ const PERSONA_ICONS = {
 };
 
 const PERSONA_CONFIG = {
+  auto: { label: 'Auto', color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/30', desc: 'Automatically picks the best persona' },
   planner: { label: 'Planner', color: 'text-indigo-400', bg: 'bg-indigo-500/10 border-indigo-500/30' },
   executor: { label: 'Executor', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' },
   researcher: { label: 'Researcher', color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/30' },
