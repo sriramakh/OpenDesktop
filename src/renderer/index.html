@@ -8,7 +8,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   </head>
-  <body class="bg-surface-0 text-white antialiased overflow-hidden">
+  <body class="antialiased overflow-hidden">
+    <!-- Apply saved theme before React hydrates to avoid flash -->
+    <script>
+      (function() {
+        var t = localStorage.getItem('od-theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="./main.jsx"></script>
   </body>

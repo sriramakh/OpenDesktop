@@ -2,6 +2,114 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────
+   Theme tokens
+   Values are HSL channels (no `hsl()` wrapper) so Tailwind's
+   opacity modifier syntax  bg-surface-1/50  still works.
+───────────────────────────────────────────────────────────── */
+
+/* ── Dark (default) ──────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --surface-0:    240 22% 5%;    /* #0a0a0f */
+  --surface-1:    240 18% 9%;    /* #12121a */
+  --surface-2:    240 16% 12%;   /* #1a1a25 */
+  --surface-3:    240 16% 16%;   /* #222230 */
+  --surface-4:    240 15% 20%;   /* #2a2a3a */
+  --accent:       239 84% 67%;   /* #6366f1 */
+  --accent-hover: 234 93% 74%;   /* #818cf8 */
+  --accent-muted: 245 76% 58%;   /* #4f46e5 */
+  --muted:        240  4% 46%;   /* #71717a */
+
+  /* Semantic text tokens */
+  --text-primary:   #ffffff;
+  --text-secondary: #a1a1aa;     /* zinc-400 */
+  --text-tertiary:  #71717a;     /* zinc-500 */
+
+  /* Component-specific */
+  --scrollbar-thumb:       rgba(113, 113, 122, 0.30);
+  --scrollbar-thumb-hover: rgba(113, 113, 122, 0.50);
+  --glass-bg:              rgba(18, 18, 26, 0.80);
+  --code-bg:               rgba(99, 102, 241, 0.15);
+  --code-color:            #a5b4fc;
+  --pre-bg:                rgba(10, 10, 15, 0.80);
+  --pre-border:            rgba(99, 102, 241, 0.20);
+  --pre-code-color:        #e4e4e7;
+  --link-color:            #818cf8;
+  --blockquote-border:     #6366f1;
+  --blockquote-color:      #a1a1aa;
+  --input-bg:              rgba(10, 10, 15, 0.60);
+  --input-border:          rgba(34, 34, 48, 1);
+  --window-bg:             #0a0a0f;
+}
+
+/* ── Light ───────────────────────────────────────────────── */
+[data-theme="light"] {
+  --surface-0:    220 20% 95%;   /* #eef1f7 */
+  --surface-1:    0   0% 100%;   /* #ffffff */
+  --surface-2:    220 16% 93%;   /* #e9ecf3 */
+  --surface-3:    220 14% 84%;   /* #d2d6e2 */
+  --surface-4:    220 12% 74%;   /* #b5bccf */
+  --accent:       239 84% 60%;   /* slightly deeper indigo for contrast */
+  --accent-hover: 239 84% 55%;
+  --accent-muted: 245 76% 54%;
+  --muted:        220  9% 46%;   /* #6b7280 */
+
+  --text-primary:   #0f172a;     /* slate-900 */
+  --text-secondary: #475569;     /* slate-600 */
+  --text-tertiary:  #64748b;     /* slate-500 */
+
+  --scrollbar-thumb:       rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+  --glass-bg:              rgba(255, 255, 255, 0.85);
+  --code-bg:               rgba(99, 102, 241, 0.10);
+  --code-color:            #4338ca;
+  --pre-bg:                rgba(241, 245, 249, 0.95);
+  --pre-border:            rgba(99, 102, 241, 0.15);
+  --pre-code-color:        #1e293b;
+  --link-color:            #4f46e5;
+  --blockquote-border:     #6366f1;
+  --blockquote-color:      #64748b;
+  --input-bg:              rgba(255, 255, 255, 0.90);
+  --input-border:          rgba(210, 214, 226, 1);
+  --window-bg:             #eef1f7;
+}
+
+/* ── Warm ────────────────────────────────────────────────── */
+[data-theme="warm"] {
+  --surface-0:    38 35% 94%;    /* #f5f0e8 */
+  --surface-1:    40 50% 98%;    /* #fdf9f3 */
+  --surface-2:    38 25% 89%;    /* #ede4d4 */
+  --surface-3:    34 20% 79%;    /* #d6c9b3 */
+  --surface-4:    32 16% 68%;    /* #bfae98 */
+  --accent:        36 92% 46%;   /* #e08a06 — deep amber */
+  --accent-hover:  36 92% 52%;
+  --accent-muted:  36 88% 40%;
+  --muted:         30 12% 48%;   /* #8a7767 */
+
+  --text-primary:   #2d1f0f;     /* deep warm brown */
+  --text-secondary: #6b5740;     /* medium warm brown */
+  --text-tertiary:  #8a7060;
+
+  --scrollbar-thumb:       rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+  --glass-bg:              rgba(253, 249, 243, 0.85);
+  --code-bg:               rgba(224, 138, 6, 0.12);
+  --code-color:             #92400e;
+  --pre-bg:                rgba(245, 240, 232, 0.95);
+  --pre-border:            rgba(224, 138, 6, 0.20);
+  --pre-code-color:        #2d1f0f;
+  --link-color:            #b45309;
+  --blockquote-border:     #e08a06;
+  --blockquote-color:      #6b5740;
+  --input-bg:              rgba(253, 249, 243, 0.90);
+  --input-border:          rgba(214, 201, 179, 1);
+  --window-bg:             #f5f0e8;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Global base
+───────────────────────────────────────────────────────────── */
 * {
   margin: 0;
   padding: 0;
@@ -11,54 +119,74 @@
 html, body, #root {
   height: 100%;
   width: 100%;
+  color: var(--text-primary);
+  background-color: hsl(var(--surface-0));
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ─────────────────────────────────────────────────────────────
+   Text-color overrides for light / warm themes
+   (Components use Tailwind classes like text-white / text-zinc-*
+    which were designed for the dark theme. We remap them.)
+───────────────────────────────────────────────────────────── */
+[data-theme="light"],
+[data-theme="warm"] {
+  /* text-white → primary text */
+  .text-white    { color: var(--text-primary) !important; }
+  /* Light zinc shades are near-invisible on light bg — remap to secondary */
+  .text-zinc-100,
+  .text-zinc-200 { color: var(--text-primary)   !important; }
+  .text-zinc-300,
+  .text-zinc-400 { color: var(--text-secondary) !important; }
+  .text-zinc-500,
+  .text-zinc-600 { color: var(--text-tertiary)  !important; }
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
+/* Keep white text inside colored buttons / badges so it stays legible */
+[data-theme="light"] .bg-accent .text-white,
+[data-theme="light"] .bg-accent-muted .text-white,
+[data-theme="warm"]  .bg-accent .text-white,
+[data-theme="warm"]  .bg-accent-muted .text-white {
+  color: #ffffff !important;
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Custom scrollbar
+───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(113, 113, 122, 0.3);
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(113, 113, 122, 0.5);
-}
+/* ─────────────────────────────────────────────────────────────
+   Drag region for titlebar
+───────────────────────────────────────────────────────────── */
+.drag-region  { -webkit-app-region: drag; }
+.no-drag      { -webkit-app-region: no-drag; }
 
-/* Drag region for titlebar */
-.drag-region {
-  -webkit-app-region: drag;
-}
-
-.no-drag {
-  -webkit-app-region: no-drag;
-}
-
-/* Markdown content styling */
+/* ─────────────────────────────────────────────────────────────
+   Markdown content
+───────────────────────────────────────────────────────────── */
 .markdown-content h1 { font-size: 1.25rem; font-weight: 700; margin: 0.75rem 0 0.5rem; }
-.markdown-content h2 { font-size: 1.1rem; font-weight: 600; margin: 0.5rem 0 0.375rem; }
-.markdown-content h3 { font-size: 1rem; font-weight: 600; margin: 0.375rem 0 0.25rem; }
-.markdown-content p { margin: 0.375rem 0; line-height: 1.6; }
-.markdown-content ul, .markdown-content ol { padding-left: 1.25rem; margin: 0.375rem 0; }
+.markdown-content h2 { font-size: 1.1rem;  font-weight: 600; margin: 0.5rem 0 0.375rem; }
+.markdown-content h3 { font-size: 1rem;    font-weight: 600; margin: 0.375rem 0 0.25rem; }
+.markdown-content p  { margin: 0.375rem 0; line-height: 1.6; }
+.markdown-content ul,
+.markdown-content ol { padding-left: 1.25rem; margin: 0.375rem 0; }
 .markdown-content li { margin: 0.125rem 0; line-height: 1.5; }
 .markdown-content code {
-  background: rgba(99, 102, 241, 0.15);
-  color: #a5b4fc;
+  background: var(--code-bg);
+  color: var(--code-color);
   padding: 0.125rem 0.375rem;
   border-radius: 0.25rem;
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.85em;
 }
 .markdown-content pre {
-  background: rgba(10, 10, 15, 0.8);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: var(--pre-bg);
+  border: 1px solid var(--pre-border);
   border-radius: 0.5rem;
   padding: 0.75rem;
   margin: 0.5rem 0;
@@ -67,32 +195,30 @@ html, body, #root {
 .markdown-content pre code {
   background: none;
   padding: 0;
-  color: #e4e4e7;
+  color: var(--pre-code-color);
 }
-.markdown-content a {
-  color: #818cf8;
-  text-decoration: underline;
-}
+.markdown-content a { color: var(--link-color); text-decoration: underline; }
 .markdown-content blockquote {
-  border-left: 3px solid #6366f1;
+  border-left: 3px solid var(--blockquote-border);
   padding-left: 0.75rem;
   margin: 0.5rem 0;
-  color: #a1a1aa;
+  color: var(--blockquote-color);
 }
 
-/* Pulse animation for active steps */
+/* ─────────────────────────────────────────────────────────────
+   Animations
+───────────────────────────────────────────────────────────── */
 @keyframes activePulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  50%       { opacity: 0.6; }
 }
+.step-active { animation: activePulse 1.5s ease-in-out infinite; }
 
-.step-active {
-  animation: activePulse 1.5s ease-in-out infinite;
-}
-
-/* Glass effect */
+/* ─────────────────────────────────────────────────────────────
+   Glass effect
+───────────────────────────────────────────────────────────── */
 .glass {
-  background: rgba(18, 18, 26, 0.8);
+  background: var(--glass-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }

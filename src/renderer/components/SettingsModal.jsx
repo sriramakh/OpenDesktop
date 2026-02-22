@@ -35,6 +35,10 @@ import {
   Terminal,
   Wifi,
   WifiOff,
+  Palette,
+  Sun,
+  Moon,
+  Sunset,
 } from 'lucide-react';
 
 const api = window.api;
@@ -143,7 +147,7 @@ const DEFAULT_SETTINGS = {
   maxTokens: 4096,
 };
 
-export default function SettingsModal({ onClose }) {
+export default function SettingsModal({ onClose, theme = 'dark', onThemeChange }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState('llm');
@@ -326,10 +330,11 @@ export default function SettingsModal({ onClose }) {
   };
 
   const tabs = [
-    { id: 'llm', label: 'LLM & Models', icon: Brain },
-    { id: 'agent', label: 'Agent', icon: Zap },
-    { id: 'permissions', label: 'Permissions', icon: Shield },
-    { id: 'mcp', label: 'MCP Servers', icon: Plug },
+    { id: 'llm',        label: 'LLM & Models', icon: Brain   },
+    { id: 'agent',      label: 'Agent',         icon: Zap     },
+    { id: 'permissions',label: 'Permissions',   icon: Shield  },
+    { id: 'mcp',        label: 'MCP Servers',   icon: Plug    },
+    { id: 'appearance', label: 'Appearance',    icon: Palette },
   ];
 
   // Build model list — merge catalog with Ollama-discovered models
@@ -952,6 +957,113 @@ export default function SettingsModal({ onClose }) {
               </div>
             </div>
           )}
+
+          {activeTab === 'appearance' && (
+            <div className="space-y-5">
+              <p className="text-xs text-zinc-400">Choose the visual theme for the app. Your selection is saved instantly.</p>
+
+              <div className="grid grid-cols-3 gap-3">
+                {/* Dark */}
+                <button
+                  onClick={() => onThemeChange?.('dark')}
+                  className={`group relative rounded-xl border-2 overflow-hidden transition-all ${
+                    theme === 'dark'
+                      ? 'border-accent shadow-lg shadow-accent/20'
+                      : 'border-surface-3 hover:border-surface-4'
+                  }`}
+                >
+                  {/* Mini preview */}
+                  <div className="h-24 bg-[#0a0a0f] p-2 space-y-1.5">
+                    <div className="h-3 rounded bg-[#12121a] w-full" />
+                    <div className="flex gap-1.5 h-14">
+                      <div className="w-10 rounded bg-[#12121a]" />
+                      <div className="flex-1 rounded bg-[#12121a] p-1.5 space-y-1">
+                        <div className="h-1.5 rounded-full bg-[#6366f1]/60 w-3/4" />
+                        <div className="h-1.5 rounded-full bg-[#2a2a3a] w-full" />
+                        <div className="h-1.5 rounded-full bg-[#2a2a3a] w-5/6" />
+                      </div>
+                    </div>
+                    <div className="h-3 rounded bg-[#1a1a25] w-full" />
+                  </div>
+                  <div className="px-3 py-2 bg-surface-1 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Moon size={11} className="text-indigo-400" />
+                      <span className="text-xs font-medium text-zinc-300">Dark</span>
+                    </div>
+                    {theme === 'dark' && <div className="w-2 h-2 rounded-full bg-accent" />}
+                  </div>
+                </button>
+
+                {/* Light */}
+                <button
+                  onClick={() => onThemeChange?.('light')}
+                  className={`group relative rounded-xl border-2 overflow-hidden transition-all ${
+                    theme === 'light'
+                      ? 'border-accent shadow-lg shadow-accent/20'
+                      : 'border-surface-3 hover:border-surface-4'
+                  }`}
+                >
+                  <div className="h-24 bg-[#eef1f7] p-2 space-y-1.5">
+                    <div className="h-3 rounded bg-[#ffffff] w-full shadow-sm" />
+                    <div className="flex gap-1.5 h-14">
+                      <div className="w-10 rounded bg-[#ffffff] shadow-sm" />
+                      <div className="flex-1 rounded bg-[#ffffff] shadow-sm p-1.5 space-y-1">
+                        <div className="h-1.5 rounded-full bg-[#4f46e5]/50 w-3/4" />
+                        <div className="h-1.5 rounded-full bg-[#d2d6e2] w-full" />
+                        <div className="h-1.5 rounded-full bg-[#d2d6e2] w-5/6" />
+                      </div>
+                    </div>
+                    <div className="h-3 rounded bg-[#e9ecf3] w-full" />
+                  </div>
+                  <div className="px-3 py-2 bg-surface-1 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Sun size={11} className="text-yellow-500" />
+                      <span className="text-xs font-medium text-zinc-300">Light</span>
+                    </div>
+                    {theme === 'light' && <div className="w-2 h-2 rounded-full bg-accent" />}
+                  </div>
+                </button>
+
+                {/* Warm */}
+                <button
+                  onClick={() => onThemeChange?.('warm')}
+                  className={`group relative rounded-xl border-2 overflow-hidden transition-all ${
+                    theme === 'warm'
+                      ? 'border-accent shadow-lg shadow-accent/20'
+                      : 'border-surface-3 hover:border-surface-4'
+                  }`}
+                >
+                  <div className="h-24 bg-[#f5f0e8] p-2 space-y-1.5">
+                    <div className="h-3 rounded bg-[#fdf9f3] w-full shadow-sm" />
+                    <div className="flex gap-1.5 h-14">
+                      <div className="w-10 rounded bg-[#fdf9f3] shadow-sm" />
+                      <div className="flex-1 rounded bg-[#fdf9f3] shadow-sm p-1.5 space-y-1">
+                        <div className="h-1.5 rounded-full bg-[#e08a06]/60 w-3/4" />
+                        <div className="h-1.5 rounded-full bg-[#ede4d4] w-full" />
+                        <div className="h-1.5 rounded-full bg-[#ede4d4] w-5/6" />
+                      </div>
+                    </div>
+                    <div className="h-3 rounded bg-[#ede4d4] w-full" />
+                  </div>
+                  <div className="px-3 py-2 bg-surface-1 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Sunset size={11} className="text-amber-500" />
+                      <span className="text-xs font-medium text-zinc-300">Warm</span>
+                    </div>
+                    {theme === 'warm' && <div className="w-2 h-2 rounded-full bg-accent" />}
+                  </div>
+                </button>
+              </div>
+
+              {/* Active theme badge */}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-0/60 border border-surface-3">
+                <div className="w-2 h-2 rounded-full bg-accent" />
+                <span className="text-xs text-zinc-400">
+                  Active theme: <span className="text-zinc-200 font-medium capitalize">{theme}</span>
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -968,13 +1080,15 @@ export default function SettingsModal({ onClose }) {
             {saved && (
               <span className="text-xs text-emerald-400 animate-fade-in">Saved!</span>
             )}
-            <button
-              onClick={handleSave}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-accent/20 text-accent hover:bg-accent/30 text-xs font-medium border border-accent/30 transition-colors"
-            >
-              <Save size={12} />
-              Save Settings
-            </button>
+            {activeTab !== 'appearance' && (
+              <button
+                onClick={handleSave}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-accent/20 text-accent hover:bg-accent/30 text-xs font-medium border border-accent/30 transition-colors"
+              >
+                <Save size={12} />
+                Save Settings
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -982,12 +1096,12 @@ export default function SettingsModal({ onClose }) {
       <style>{`
         .input-field {
           width: 100%;
-          background: rgba(10, 10, 15, 0.6);
-          border: 1px solid rgba(42, 42, 58, 0.8);
+          background: var(--input-bg);
+          border: 1px solid var(--input-border);
           border-radius: 0.5rem;
           padding: 0.5rem 0.75rem;
           font-size: 0.8125rem;
-          color: #d4d4d8;
+          color: var(--text-primary);
           outline: none;
           transition: border-color 0.15s;
         }
@@ -995,8 +1109,8 @@ export default function SettingsModal({ onClose }) {
           border-color: rgba(99, 102, 241, 0.4);
         }
         .input-field option {
-          background: #12121a;
-          color: #d4d4d8;
+          background: hsl(var(--surface-1));
+          color: var(--text-primary);
         }
       `}</style>
     </div>

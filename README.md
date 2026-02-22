@@ -101,6 +101,8 @@ Choose from **10 providers** and **80+ models** directly in the Settings UI:
 - **Context overflow protection** — conversation truncation + tool result trimming to stay within model limits
 - **Provider card selector** with one-click switching (10 providers)
 - **Model dropdown** with context window size display
+- **Dynamic UI Theming** — Dark, Light, and Warm themes with instant switching via Settings
+- **Robust Tool Schemas** — automatic schema conversion for strict providers (like Gemini requiring recursive `OBJECT` and `ARRAY` types)
 - **Ollama auto-discovery** — detects locally installed models via `ollama list`
 - **Encrypted API key storage** — AES-256-GCM encryption with machine-specific key derivation (PBKDF2, 100K iterations)
 - Keys are stored in `~/.config/open-desktop/.keystore.enc`, never in plaintext

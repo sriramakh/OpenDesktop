@@ -371,9 +371,9 @@ async function listOllamaModels(endpoint) {
 
 ### Registry
 
-**File:** `src/main/agent/tools/registry.js` (194 lines)
+**File:** `src/main/agent/tools/registry.js` (229 lines)
 
-The ToolRegistry manages all registered tools and generates provider-specific tool definitions.
+The ToolRegistry manages all registered tools and generates provider-specific tool definitions, including dynamic nested schema conversion for strict providers (like Gemini).
 
 **Registration:** `registerBuiltinTools()` loads tools from all category files (filesystem, office, app-control, browser, search-fetch, system, llm-tools).
 

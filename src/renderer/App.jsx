@@ -11,6 +11,12 @@ const api = window.api;
 // Unique ID helper
 const uid = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+// Apply theme to the document root (persisted in localStorage)
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('od-theme', theme);
+}
+
 export default function App() {
   const [messages,          setMessages]          = useState([]);
   const [activePersona,     setActivePersona]     = useState('auto');
@@ -25,9 +31,15 @@ export default function App() {
   const [settings,          setSettings]          = useState(null);
   const [selectedHistoryId, setSelectedHistoryId] = useState(null);
   const [mcpServers,        setMCPServers]        = useState([]);
+  const [theme,             setTheme]             = useState(() => localStorage.getItem('od-theme') || 'dark');
 
   // activeTaskId — the ID of the currently running task (for event correlation)
   const activeTaskIdRef = useRef(null);
+
+  // Apply theme on mount and whenever it changes
+  useEffect(() => { applyTheme(theme); }, [theme]);
+
+  const handleThemeChange = useCallback((t) => { setTheme(t); }, []);
 
   const loadSettings = () => api?.getSettings().then(setSettings).catch(console.error);
   const refreshMCP   = () => api?.listMCPServers().then(setMCPServers).catch(console.error);
@@ -358,7 +370,13 @@ export default function App() {
         />
       )}
 
-      {showSettings && <SettingsModal onClose={() => { setShowSettings(false); loadSettings(); refreshMCP(); }} />}
+      {showSettings && (
+        <SettingsModal
+          onClose={() => { setShowSettings(false); loadSettings(); refreshMCP(); }}
+          theme={theme}
+          onThemeChange={handleThemeChange}
+        />
+      )}
     </div>
   );
 }

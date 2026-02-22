@@ -187,15 +187,42 @@ class ToolRegistry {
     return [{ functionDeclarations }];
   }
 
+  /**
+   * Recursively convert a JSON Schema node to Gemini schema format.
+   * Gemini requires:
+   *  - type in UPPER_CASE
+   *  - ARRAY types must always have an `items` field
+   *  - OBJECT types may have `properties` + `required`
+   *  - No `additionalProperties`, `default`, `$schema` etc.
+   */
+  _toGeminiSchema(schema) {
+    if (!schema) return { type: 'STRING' };
+
+    const type = (schema.type || 'string').toUpperCase();
+    const result = { type };
+    if (schema.description) result.description = schema.description;
+    if (schema.enum)        result.enum = schema.enum;
+
+    if (type === 'ARRAY') {
+      // Gemini rejects arrays without items — always provide one
+      result.items = schema.items
+        ? this._toGeminiSchema(schema.items)
+        : { type: 'STRING' };
+    }
+
+    if (type === 'OBJECT' && schema.properties) {
+      result.properties = this._toGeminiProperties(schema.properties);
+      if (schema.required?.length) result.required = schema.required;
+    }
+
+    return result;
+  }
+
   _toGeminiProperties(props) {
     if (!props) return {};
     const result = {};
     for (const [key, val] of Object.entries(props)) {
-      result[key] = {
-        type: (val.type || 'string').toUpperCase(),
-        description: val.description || '',
-      };
-      if (val.enum) result[key].enum = val.enum;
+      result[key] = this._toGeminiSchema(val);
     }
     return result;
   }
