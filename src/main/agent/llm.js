@@ -414,17 +414,27 @@ async function _openAIWithTools(
     ...openAIMessages,
   ];
 
+  // Reasoning models (o1, o3, etc.) require max_completion_tokens and don't support temperature
+  const isReasoningModel = /^o[0-9]/.test(model);
+
   const bodyObj = {
     model,
     messages: allMessages,
-    temperature,
-    max_tokens: maxTokens,
   };
 
-  // Only attach tools if there are any (o1/o3 models don't support tools in some configs)
+  if (isReasoningModel) {
+    bodyObj.max_completion_tokens = maxTokens;
+  } else {
+    bodyObj.temperature = temperature;
+    bodyObj.max_tokens = maxTokens;
+  }
+
+  // Only attach tools if there are any
   if (tools && tools.length > 0) {
     bodyObj.tools = tools;
-    bodyObj.tool_choice = 'auto';
+    if (!isReasoningModel) {
+      bodyObj.tool_choice = 'auto';
+    }
   }
 
   const rawResponse = await httpRequest(url, {
@@ -685,18 +695,24 @@ async function _ollamaSimple(endpoint, model, systemPrompt, userMessage, tempera
 
 async function _openAISimple(endpoint, apiKey, model, systemPrompt, userMessage, temperature, maxTokens) {
   const url = new URL('/v1/chat/completions', endpoint || MODEL_CATALOG.openai.endpoint);
+  const isReasoning = /^o[0-9]/.test(model);
+  const bodyObj = {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userMessage },
+    ],
+  };
+  if (isReasoning) {
+    bodyObj.max_completion_tokens = maxTokens;
+  } else {
+    bodyObj.temperature = temperature;
+    bodyObj.max_tokens = maxTokens;
+  }
   const response = await httpRequest(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userMessage },
-      ],
-      temperature,
-      max_tokens: maxTokens,
-    }),
+    body: JSON.stringify(bodyObj),
   });
   return JSON.parse(response).choices?.[0]?.message?.content || '';
 }

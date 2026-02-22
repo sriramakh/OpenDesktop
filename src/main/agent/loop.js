@@ -73,6 +73,9 @@ class AgentLoop {
         this.llm.getCurrentProvider()
       );
 
+      // Truncate conversation if it's getting too large for the model's context
+      this._truncateConversation(conversation, systemPrompt);
+
       // Call LLM — returns { text, toolCalls, rawContent, stopReason }
       let response;
       try {
@@ -118,10 +121,18 @@ class AgentLoop {
         taskId
       );
 
+      // Trim large tool results before appending to conversation
+      const trimmedResults = toolResults.map((r) => ({
+        ...r,
+        content: r.content && r.content.length > 8000
+          ? r.content.slice(0, 8000) + '\n... [output truncated — ' + r.content.length + ' chars total]'
+          : r.content,
+      }));
+
       // Append tool results to conversation (provider-specific format handled by llm module)
       conversation.push({
         role: 'tool_results',
-        results: toolResults,
+        results: trimmedResults,
       });
 
       // Emit results for UI live-update
@@ -266,6 +277,50 @@ class AgentLoop {
         content: `Error executing ${tc.name}: ${err.message}`,
         error: err.message,
       };
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Conversation truncation to stay within context limits
+  // --------------------------------------------------------------------------
+
+  _estimateTokens(text) {
+    if (!text) return 0;
+    if (typeof text === 'string') return Math.ceil(text.length / 3.5);
+    return Math.ceil(JSON.stringify(text).length / 3.5);
+  }
+
+  _truncateConversation(conversation, systemPrompt) {
+    // Rough token budget: reserve tokens for system prompt, tools, and completion
+    const MAX_CONVERSATION_TOKENS = 80000;
+    const systemTokens = this._estimateTokens(systemPrompt);
+    const budget = MAX_CONVERSATION_TOKENS - systemTokens;
+
+    // Estimate current conversation size
+    let totalTokens = 0;
+    for (const msg of conversation) {
+      totalTokens += this._estimateTokens(msg.content);
+      if (msg.results) {
+        for (const r of msg.results) {
+          totalTokens += this._estimateTokens(r.content);
+        }
+      }
+    }
+
+    if (totalTokens <= budget) return;
+
+    // Strategy: keep the first user message and the most recent messages.
+    // Remove older assistant/tool_results pairs from the middle.
+    while (totalTokens > budget && conversation.length > 3) {
+      // Find the first removable message (skip index 0 = first user message)
+      const removed = conversation.splice(1, 1)[0];
+      let removedTokens = this._estimateTokens(removed.content);
+      if (removed.results) {
+        for (const r of removed.results) {
+          removedTokens += this._estimateTokens(r.content);
+        }
+      }
+      totalTokens -= removedTokens;
     }
   }
 
