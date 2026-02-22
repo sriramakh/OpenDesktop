@@ -590,6 +590,298 @@ print(json.dumps({
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DOCX helpers — python-docx (primary) → mammoth (fallback)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * extractDocxStructured(filePath)
+ * Uses python-docx to return rich structured output:
+ *   { paragraphs:[{text, style, level}], tables:[[[cells]]], meta, total_paragraphs }
+ */
+async function extractDocxStructured(filePath) {
+  const script = `
+import sys, json
+doc_path = sys.argv[1]
+
+try:
+    from docx import Document
+    from docx.oxml.ns import qn
+    import datetime
+
+    doc = Document(doc_path)
+
+    # Core properties
+    cp = doc.core_properties
+    def dt_str(d):
+        if d is None: return None
+        if isinstance(d, datetime.datetime): return d.isoformat()
+        return str(d)
+
+    meta = {
+        'title':    cp.title or '',
+        'author':   cp.author or '',
+        'created':  dt_str(cp.created),
+        'modified': dt_str(cp.modified),
+        'subject':  cp.subject or '',
+        'keywords': cp.keywords or '',
+    }
+
+    # Paragraphs
+    paragraphs = []
+    for p in doc.paragraphs:
+        txt = p.text
+        style = p.style.name if p.style else 'Normal'
+        level = None
+        if style.startswith('Heading'):
+            try: level = int(style.split()[-1])
+            except: level = 1
+        paragraphs.append({'text': txt, 'style': style, 'level': level})
+
+    # Tables
+    tables = []
+    for tbl in doc.tables:
+        rows = []
+        for row in tbl.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            rows.append(cells)
+        tables.append(rows)
+
+    print(json.dumps({
+        'paragraphs':       paragraphs,
+        'tables':           tables,
+        'meta':             meta,
+        'total_paragraphs': len(paragraphs),
+        'total_tables':     len(tables),
+    }))
+
+except ImportError:
+    print(json.dumps({'error': 'python-docx not installed. Run: pip install python-docx'}))
+except Exception as e:
+    print(json.dumps({'error': str(e)}))
+`;
+  return runPythonScript(script, [filePath], 60000);
+}
+
+/**
+ * searchDocx(filePath, query, opts)
+ * Search a DOCX for a term/phrase, handling cross-paragraph normalization.
+ * Returns { matches:[{paragraph_idx, style, heading_context, match, context}], total_paragraphs, match_count }
+ */
+async function searchDocx(filePath, query, opts = {}) {
+  const { maxResults = 50, contextParas = 1 } = opts;
+
+  const script = `
+import sys, json, re
+doc_path    = sys.argv[1]
+query       = sys.argv[2].lower()
+max_results = int(sys.argv[3]) if len(sys.argv) > 3 else 50
+
+def normalize(text):
+    text = re.sub(r'(\\w)-\\n(\\w)', r'\\1\\2', text)
+    return re.sub(r'\\s+', ' ', text).strip()
+
+try:
+    from docx import Document
+
+    doc = Document(doc_path)
+    paras = []
+    for p in doc.paragraphs:
+        style = p.style.name if p.style else 'Normal'
+        paras.append({'text': p.text, 'style': style})
+
+    total = len(paras)
+
+    # Build a flat normalized corpus with paragraph boundaries tracked
+    # We join all paragraphs with a unique sentinel to do cross-para matching
+    SENTINEL = ' ||| '
+    parts    = [normalize(p['text']) for p in paras]
+    corpus   = SENTINEL.join(parts)
+
+    pattern  = re.compile(re.escape(query), re.IGNORECASE)
+    matches  = []
+
+    # Track paragraph start offsets in the corpus
+    offsets = []
+    pos = 0
+    for part in parts:
+        offsets.append(pos)
+        pos += len(part) + len(SENTINEL)
+
+    def para_idx_for_pos(char_pos):
+        """Find which paragraph index a corpus char_pos falls in."""
+        for i in range(len(offsets) - 1):
+            if offsets[i] <= char_pos < offsets[i + 1]:
+                return i
+        return len(offsets) - 1
+
+    def find_last_heading(para_idx):
+        """Walk backwards to find nearest heading paragraph."""
+        for i in range(para_idx, -1, -1):
+            s = paras[i]['style']
+            if 'Heading' in s or 'Title' in s:
+                return paras[i]['text']
+        return None
+
+    for m in pattern.finditer(corpus):
+        idx = para_idx_for_pos(m.start())
+        # Build snippet: para before + matching para + para after
+        snip_parts = []
+        for i in range(max(0, idx - 1), min(total, idx + 2)):
+            snip_parts.append(parts[i])
+        context = ' ... '.join(filter(None, snip_parts))
+
+        matches.append({
+            'paragraph_idx':   idx,
+            'style':           paras[idx]['style'],
+            'heading_context': find_last_heading(idx),
+            'match':           m.group(0),
+            'context':         context,
+        })
+        if len(matches) >= max_results:
+            break
+
+    # Dedup by paragraph_idx (don't show same paragraph twice)
+    seen = set()
+    deduped = []
+    for m in matches:
+        key = m['paragraph_idx']
+        if key not in seen:
+            seen.add(key)
+            deduped.append(m)
+
+    print(json.dumps({
+        'matches':          deduped,
+        'total_paragraphs': total,
+        'match_count':      len(deduped),
+    }))
+
+except ImportError:
+    print(json.dumps({'error': 'python-docx not installed. Run: pip install python-docx'}))
+except Exception as e:
+    print(json.dumps({'error': str(e), 'matches': [], 'total_paragraphs': 0}))
+`;
+  return runPythonScript(script, [filePath, query, maxResults], 60000);
+}
+
+/**
+ * searchAcrossDocxs(directory, query, opts)
+ * Batch search across ALL DOCX files in a directory (one Python process).
+ * Returns { matches:[{file, path, paragraph_idx, style, heading_context, match, context}], total_matches, searched, failed }
+ */
+async function searchAcrossDocxs(directory, query, opts = {}) {
+  const { maxResultsPerFile = 10, maxFiles = 200, recursive = true } = opts;
+
+  const script = `
+import sys, json, re, os, glob
+
+directory      = sys.argv[1]
+query          = sys.argv[2].lower()
+max_per_file   = int(sys.argv[3]) if len(sys.argv) > 3 else 10
+max_files      = int(sys.argv[4]) if len(sys.argv) > 4 else 200
+recursive_srch = sys.argv[5].lower() == 'true' if len(sys.argv) > 5 else True
+
+# Collect DOCX files
+if recursive_srch:
+    docxs = glob.glob(os.path.join(directory, '**', '*.docx'), recursive=True) + \\
+            glob.glob(os.path.join(directory, '**', '*.DOCX'), recursive=True)
+else:
+    docxs = glob.glob(os.path.join(directory, '*.docx')) + \\
+            glob.glob(os.path.join(directory, '*.DOCX'))
+
+docxs = list(set(docxs))[:max_files]
+
+def normalize(text):
+    text = re.sub(r'(\\w)-\\n(\\w)', r'\\1\\2', text)
+    return re.sub(r'\\s+', ' ', text).strip()
+
+pattern    = re.compile(re.escape(query), re.IGNORECASE)
+SENTINEL   = ' ||| '
+all_matches = []
+searched   = 0
+failed     = []
+
+try:
+    from docx import Document
+    has_docx = True
+except ImportError:
+    has_docx = False
+
+for doc_path in docxs:
+    searched += 1
+    try:
+        if not has_docx:
+            failed.append(os.path.basename(doc_path))
+            continue
+
+        doc   = Document(doc_path)
+        paras = [{'text': p.text, 'style': p.style.name if p.style else 'Normal'} for p in doc.paragraphs]
+        parts = [normalize(p['text']) for p in paras]
+        total = len(parts)
+
+        if sum(len(p) for p in parts) < 20:
+            continue  # empty / corrupted
+
+        corpus  = SENTINEL.join(parts)
+        offsets = []
+        pos = 0
+        for part in parts:
+            offsets.append(pos)
+            pos += len(part) + len(SENTINEL)
+
+        def para_idx_for_pos(char_pos):
+            for i in range(len(offsets) - 1):
+                if offsets[i] <= char_pos < offsets[i + 1]:
+                    return i
+            return len(offsets) - 1
+
+        def find_last_heading(idx):
+            for i in range(idx, -1, -1):
+                s = paras[i]['style']
+                if 'Heading' in s or 'Title' in s:
+                    return paras[i]['text']
+            return None
+
+        file_matches = []
+        seen_idx = set()
+        for m in pattern.finditer(corpus):
+            idx = para_idx_for_pos(m.start())
+            if idx in seen_idx:
+                continue
+            seen_idx.add(idx)
+            snip = ' ... '.join(filter(None, [parts[i] for i in range(max(0, idx-1), min(total, idx+2))]))
+            file_matches.append({
+                'file':            os.path.basename(doc_path),
+                'path':            doc_path,
+                'paragraph_idx':   idx,
+                'style':           paras[idx]['style'],
+                'heading_context': find_last_heading(idx),
+                'match':           m.group(0),
+                'context':         snip,
+            })
+            if len(file_matches) >= max_per_file:
+                break
+
+        all_matches.extend(file_matches)
+
+    except Exception as e:
+        failed.append(os.path.basename(doc_path))
+
+print(json.dumps({
+    'matches':       all_matches,
+    'total_matches': len(all_matches),
+    'searched':      searched,
+    'failed':        failed[:20],
+    'docx_list':     [os.path.basename(d) for d in docxs[:50]],
+}))
+`;
+  return runPythonScript(
+    script,
+    [directory, query, maxResultsPerFile, maxFiles, recursive ? 'true' : 'false'],
+    600000 // 10 min
+  );
+}
+
 function shellExec(cmd, timeout = 60000) {
   return new Promise((resolve, reject) => {
     exec(cmd, { timeout, maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
@@ -783,27 +1075,59 @@ const OfficeTools = [
   {
     name: 'office_read_docx',
     category: 'office',
-    description: 'Read a Word document (.docx) and return its text content. Preserves paragraph structure. Use format="html" to get a structured HTML representation with headings and formatting.',
+    description: 'Read a Word document (.docx). Modes: "text" (plain text, default), "html" (structured HTML with headings/lists), "structured" (rich outline: heading hierarchy, tables, metadata including author/title/dates — best for understanding document structure before editing).',
     params: ['path', 'format'],
     permissionLevel: 'safe',
     async execute({ path: filePath, format = 'text' }) {
       if (!filePath) throw new Error('path is required');
       const resolved = resolvePath(filePath);
-      const mammoth = require('mammoth');
 
-      let result;
-      if (format === 'html') {
-        result = await mammoth.convertToHtml({ path: resolved });
-        return `[DOCX HTML — ${path.basename(resolved)}]\n\n${result.value}`;
-      } else {
-        result = await mammoth.extractRawText({ path: resolved });
-        const warnings = result.messages
-          .filter((m) => m.type === 'warning')
-          .map((m) => m.message);
-        let out = `[DOCX — ${path.basename(resolved)}]\n\n${result.value}`;
-        if (warnings.length > 0) out += `\n\n[Warnings: ${warnings.join('; ')}]`;
-        return out;
+      if (format === 'structured') {
+        const result = await extractDocxStructured(resolved);
+        if (result.error) throw new Error(result.error);
+        const { paragraphs, tables, meta, total_paragraphs, total_tables } = result;
+
+        const lines = [`[DOCX Structured — ${path.basename(resolved)}]`];
+        if (meta?.title)    lines.push(`Title:    ${meta.title}`);
+        if (meta?.author)   lines.push(`Author:   ${meta.author}`);
+        if (meta?.created)  lines.push(`Created:  ${meta.created}`);
+        if (meta?.modified) lines.push(`Modified: ${meta.modified}`);
+        lines.push(`Paragraphs: ${total_paragraphs}  |  Tables: ${total_tables}`);
+        lines.push('');
+
+        for (const p of paragraphs) {
+          if (!p.text.trim()) continue;
+          if (p.level === 1) lines.push(`\n# ${p.text}`);
+          else if (p.level === 2) lines.push(`\n## ${p.text}`);
+          else if (p.level === 3) lines.push(`\n### ${p.text}`);
+          else if (p.level) lines.push(`\n${'#'.repeat(p.level)} ${p.text}`);
+          else if (p.style === 'List Paragraph' || p.style?.includes('List')) lines.push(`  • ${p.text}`);
+          else lines.push(p.text);
+        }
+
+        if (tables.length > 0) {
+          lines.push('\n\n--- TABLES ---');
+          tables.forEach((tbl, ti) => {
+            lines.push(`\nTable ${ti + 1}:`);
+            for (const row of tbl) lines.push('  ' + row.join(' | '));
+          });
+        }
+
+        return lines.join('\n');
       }
+
+      const mammoth = require('mammoth');
+      if (format === 'html') {
+        const result = await mammoth.convertToHtml({ path: resolved });
+        return `[DOCX HTML — ${path.basename(resolved)}]\n\n${result.value}`;
+      }
+
+      // Default: plain text
+      const result = await mammoth.extractRawText({ path: resolved });
+      const warnings = result.messages.filter((m) => m.type === 'warning').map((m) => m.message);
+      let out = `[DOCX — ${path.basename(resolved)}]\n\n${result.value}`;
+      if (warnings.length > 0) out += `\n\n[Warnings: ${warnings.join('; ')}]`;
+      return out;
     },
   },
 
@@ -811,33 +1135,68 @@ const OfficeTools = [
   {
     name: 'office_write_docx',
     category: 'office',
-    description: 'Create or update a Word document (.docx). Pass content as markdown-like text with headings (# H1, ## H2, ### H3), paragraphs, and bullet lists (- item). Saves to the specified path.',
+    description: 'Create a Word document (.docx) from markdown-like content. Supports: # H1, ## H2, ### H3 (headings), - or * (bullet lists), 1. (numbered lists), **bold**, *italic*, ***bold+italic***, __underline__, `code` (inline formatting), | col | col | (markdown tables — first row = header), --- alone on a line (page break). Paragraph text becomes Normal style.',
     params: ['path', 'content', 'title'],
     permissionLevel: 'sensitive',
     async execute({ path: filePath, content, title }) {
       if (!filePath || !content) throw new Error('path and content are required');
       const resolved = resolvePath(filePath);
 
-      // Build DOCX XML (Office Open XML format) from markdown-like content
       const lines = content.split('\n');
-      const paragraphs = [];
+      const elements = []; // each item is either an XML string or {type:'table', rows}
+      let tableBuffer = [];
+      let inTable = false;
+
+      const flushTable = () => {
+        if (tableBuffer.length > 0) {
+          const rows = parseMarkdownTable(tableBuffer);
+          if (rows.length > 0) elements.push({ type: 'table', rows });
+          tableBuffer = [];
+        }
+        inTable = false;
+      };
 
       for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed) { paragraphs.push('<w:p/>'); continue; }
 
-        if (trimmed.startsWith('### ')) {
-          paragraphs.push(makePara(trimmed.slice(4), 'Heading3'));
+        // Detect markdown table lines
+        if (trimmed.startsWith('|')) {
+          inTable = true;
+          tableBuffer.push(line);
+          continue;
+        }
+        if (inTable) { flushTable(); }
+
+        if (!trimmed) {
+          elements.push('<w:p/>');
+        } else if (trimmed === '---' || trimmed === '***' || trimmed === '===') {
+          // Page break
+          elements.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
+        } else if (trimmed.startsWith('#### ')) {
+          elements.push(makePara(trimmed.slice(5), 'Heading4'));
+        } else if (trimmed.startsWith('### ')) {
+          elements.push(makePara(trimmed.slice(4), 'Heading3'));
         } else if (trimmed.startsWith('## ')) {
-          paragraphs.push(makePara(trimmed.slice(3), 'Heading2'));
+          elements.push(makePara(trimmed.slice(3), 'Heading2'));
         } else if (trimmed.startsWith('# ')) {
-          paragraphs.push(makePara(trimmed.slice(2), 'Heading1'));
+          elements.push(makePara(trimmed.slice(2), 'Heading1'));
         } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-          paragraphs.push(makeListItem(trimmed.slice(2)));
+          elements.push(makeListItem(trimmed.slice(2)));
         } else if (/^\d+\.\s/.test(trimmed)) {
-          paragraphs.push(makeListItem(trimmed.replace(/^\d+\.\s/, ''), true));
+          elements.push(makeListItem(trimmed.replace(/^\d+\.\s/, ''), true));
         } else {
-          paragraphs.push(makePara(trimmed, 'Normal'));
+          elements.push(makePara(trimmed, 'Normal'));
+        }
+      }
+      if (inTable) flushTable();
+
+      // Build final paragraphs array, expanding tables into XML
+      const paragraphs = [];
+      for (const el of elements) {
+        if (typeof el === 'string') {
+          paragraphs.push(el);
+        } else if (el.type === 'table') {
+          paragraphs.push(makeTable(el.rows));
         }
       }
 
@@ -848,6 +1207,78 @@ const OfficeTools = [
       await fsp.writeFile(resolved, docxBuffer);
 
       return `Created DOCX: ${resolved} (${(docxBuffer.length / 1024).toFixed(1)} KB)`;
+    },
+  },
+
+  // ── DOCX search ───────────────────────────────────────────────────────────
+  {
+    name: 'office_search_docx',
+    category: 'office',
+    description: 'Search for a specific term or phrase inside a Word document (.docx). Returns matching paragraphs with surrounding context, the section heading they appear under, and the paragraph style. Handles cross-paragraph phrases correctly via text normalization.',
+    params: ['path', 'query', 'maxResults'],
+    permissionLevel: 'safe',
+    async execute({ path: filePath, query, maxResults = 30 }) {
+      if (!filePath) throw new Error('path is required');
+      if (!query)    throw new Error('query is required');
+      const resolved = resolvePath(filePath);
+      const result = await searchDocx(resolved, query, { maxResults });
+      if (result.error) throw new Error(result.error);
+      const { matches, total_paragraphs, match_count } = result;
+      if (!matches || matches.length === 0) {
+        return `[DOCX Search] No matches for "${query}" in ${path.basename(resolved)} (${total_paragraphs} paragraphs).`;
+      }
+      const lines = [
+        `[DOCX Search: "${query}" — ${match_count} match(es) in ${path.basename(resolved)} (${total_paragraphs} paragraphs)]\n`,
+      ];
+      for (const m of matches) {
+        const section = m.heading_context ? `  Section: ${m.heading_context}` : '';
+        lines.push(`--- Para #${m.paragraph_idx + 1} [${m.style}]${section ? '\n' + section : ''} ---`);
+        lines.push(m.context);
+        lines.push('');
+      }
+      return lines.join('\n');
+    },
+  },
+
+  {
+    name: 'office_search_docxs',
+    category: 'office',
+    description: 'Search for a term or phrase across ALL Word documents (.docx) in a directory (recursive by default). Runs in one Python process — much faster than searching files one by one. Returns matches grouped by file with section context. Use this for cross-document queries like "find which reports mention topic X".',
+    params: ['directory', 'query', 'maxResultsPerFile', 'maxFiles', 'recursive'],
+    permissionLevel: 'safe',
+    async execute({ directory, query, maxResultsPerFile = 10, maxFiles = 200, recursive = true }) {
+      if (!directory) throw new Error('directory is required');
+      if (!query)     throw new Error('query is required');
+      const resolved = resolvePath(directory);
+      const result = await searchAcrossDocxs(resolved, query, { maxResultsPerFile, maxFiles, recursive });
+      if (result.error) throw new Error(result.error);
+      const { matches, total_matches, searched, failed, docx_list } = result;
+
+      const header = [
+        `[DOCX Batch Search: "${query}"]`,
+        `  Documents searched: ${searched} | Matches: ${total_matches}` +
+        (failed?.length ? ` | Failed: ${failed.length}` : ''),
+        '',
+      ];
+
+      if (!matches || matches.length === 0) {
+        return [...header, `No matches found for "${query}" across ${searched} DOCX file(s).`].join('\n');
+      }
+
+      const lines = [...header];
+      let lastFile = null;
+      for (const m of matches) {
+        if (m.file !== lastFile) {
+          lines.push(`\n### ${m.file}`);
+          lastFile = m.file;
+        }
+        const section = m.heading_context ? ` [§ ${m.heading_context}]` : '';
+        lines.push(`  Para #${m.paragraph_idx + 1}${section}: ${m.context}`);
+      }
+
+      if (failed?.length) lines.push(`\n[Failed to read: ${failed.join(', ')}]`);
+
+      return lines.join('\n');
     },
   },
 
@@ -2003,10 +2434,43 @@ function decodeXMLEntities(str) {
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n)));
 }
 
+/**
+ * parseInlineRuns(text) — handles **bold**, *italic*, ***bold+italic***, __underline__, `code`
+ * Returns array of run objects.
+ */
+function parseInlineRuns(text) {
+  const runs = [];
+  const pattern = /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|__(.+?)__|`([^`]+?)`)/g;
+  let lastIndex = 0;
+  let m;
+  while ((m = pattern.exec(text)) !== null) {
+    if (m.index > lastIndex) runs.push({ text: text.slice(lastIndex, m.index) });
+    if (m[2] !== undefined)      runs.push({ text: m[2], bold: true, italic: true });
+    else if (m[3] !== undefined) runs.push({ text: m[3], bold: true });
+    else if (m[4] !== undefined) runs.push({ text: m[4], italic: true });
+    else if (m[5] !== undefined) runs.push({ text: m[5], underline: true });
+    else if (m[6] !== undefined) runs.push({ text: m[6], code: true });
+    lastIndex = pattern.lastIndex;
+  }
+  if (lastIndex < text.length) runs.push({ text: text.slice(lastIndex) });
+  return runs.length ? runs : [{ text }];
+}
+
+function renderRun(run) {
+  const props = [];
+  if (run.bold)      props.push('<w:b/>');
+  if (run.italic)    props.push('<w:i/>');
+  if (run.underline) props.push('<w:u w:val="single"/>');
+  if (run.code)      props.push('<w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/><w:sz w:val="20"/>');
+  const rPr = props.length ? `<w:rPr>${props.join('')}</w:rPr>` : '';
+  return `<w:r>${rPr}<w:t xml:space="preserve">${escapeXML(run.text)}</w:t></w:r>`;
+}
+
 function makePara(text, style) {
+  const runs = parseInlineRuns(text).map(renderRun).join('');
   return `<w:p>
     <w:pPr><w:pStyle w:val="${style}"/></w:pPr>
-    <w:r><w:t xml:space="preserve">${escapeXML(text)}</w:t></w:r>
+    ${runs}
   </w:p>`;
 }
 
@@ -2014,10 +2478,68 @@ function makeListItem(text, numbered = false) {
   const numPr = numbered
     ? '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>'
     : '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr>';
+  const runs = parseInlineRuns(text).map(renderRun).join('');
   return `<w:p>
     <w:pPr>${numPr}</w:pPr>
-    <w:r><w:t xml:space="preserve">${escapeXML(text)}</w:t></w:r>
+    ${runs}
   </w:p>`;
+}
+
+/**
+ * makeTable(rows) — rows is array of arrays of strings.
+ * First row is the header (dark blue bg, white bold text).
+ */
+function makeTable(rows) {
+  if (!rows || rows.length === 0) return '';
+  const colCount = Math.max(...rows.map((r) => r.length));
+  const colWidth  = Math.floor(9360 / colCount);
+  const tblGrid   = Array.from({ length: colCount }, () => `<w:gridCol w:w="${colWidth}"/>`).join('');
+
+  const xmlRows = rows.map((row, ri) => {
+    const isHeader = ri === 0;
+    const cells = Array.from({ length: colCount }, (_, ci) => {
+      const cellText = row[ci] !== undefined ? String(row[ci]) : '';
+      const runXml = isHeader
+        ? `<w:r><w:rPr><w:b/><w:color w:val="FFFFFF"/></w:rPr><w:t xml:space="preserve">${escapeXML(cellText)}</w:t></w:r>`
+        : parseInlineRuns(cellText).map(renderRun).join('');
+      const shading = isHeader
+        ? '<w:shd w:val="clear" w:color="auto" w:fill="2F5496"/>'
+        : (ri % 2 !== 0 ? '<w:shd w:val="clear" w:color="auto" w:fill="EEF2F8"/>' : '');
+      return `<w:tc>
+        <w:tcPr><w:tcW w:w="${colWidth}" w:type="dxa"/>${shading}</w:tcPr>
+        <w:p><w:pPr><w:pStyle w:val="Normal"/></w:pPr>${runXml}</w:p>
+      </w:tc>`;
+    }).join('');
+    return `<w:tr>${cells}</w:tr>`;
+  }).join('\n');
+
+  return `<w:tbl>
+    <w:tblPr>
+      <w:tblW w:w="9360" w:type="dxa"/>
+      <w:tblBorders>
+        <w:top    w:val="single" w:sz="4" w:space="0" w:color="2F5496"/>
+        <w:left   w:val="single" w:sz="4" w:space="0" w:color="2F5496"/>
+        <w:bottom w:val="single" w:sz="4" w:space="0" w:color="2F5496"/>
+        <w:right  w:val="single" w:sz="4" w:space="0" w:color="2F5496"/>
+        <w:insideH w:val="single" w:sz="2" w:space="0" w:color="BFBFBF"/>
+        <w:insideV w:val="single" w:sz="2" w:space="0" w:color="BFBFBF"/>
+      </w:tblBorders>
+    </w:tblPr>
+    <w:tblGrid>${tblGrid}</w:tblGrid>
+    ${xmlRows}
+  </w:tbl>`;
+}
+
+/** Parse a block of markdown table lines into [[cells], [cells], ...] */
+function parseMarkdownTable(lines) {
+  const rows = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('|')) continue;
+    if (/^\|[\s\-|:]+\|$/.test(trimmed)) continue; // separator row
+    rows.push(trimmed.replace(/^\||\|$/g, '').split('|').map((c) => c.trim()));
+  }
+  return rows;
 }
 
 function buildDocXml(paragraphs, title) {
@@ -2076,6 +2598,11 @@ const DOCX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <w:name w:val="heading 3"/>
     <w:pPr><w:outlineLvl w:val="2"/><w:spacing w:before="160" w:after="80"/></w:pPr>
     <w:rPr><w:b/><w:sz w:val="28"/><w:color w:val="1F3864"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading4">
+    <w:name w:val="heading 4"/>
+    <w:pPr><w:outlineLvl w:val="3"/><w:spacing w:before="120" w:after="60"/></w:pPr>
+    <w:rPr><w:b/><w:i/><w:sz w:val="24"/><w:color w:val="1F3864"/></w:rPr>
   </w:style>
 </w:styles>`;
 

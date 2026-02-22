@@ -57,8 +57,8 @@ OpenDesktop is a **local-first autonomous AI agent** that runs natively on macOS
 │  │              │    └── KeyStore (AES-256-GCM)                │  │
 │  │              └── PermissionManager (safe/sensitive/danger)  │  │
 │  │                                                            │  │
-│  │  ┌─── Tool Registry (49 tools) ────────────────────────┐  │  │
-│  │  │ Filesystem(11) │ Office(13) │ AppControl(6)         │  │  │
+│  │  ┌─── Tool Registry (51 tools) ────────────────────────┐  │  │
+│  │  │ Filesystem(11) │ Office(15) │ AppControl(6)         │  │  │
 │  │  │ Browser(5)     │ Search(4) │ System(6) │ LLM(4)     │  │  │
 │  │  └─────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────┘  │
@@ -108,7 +108,7 @@ app.whenReady()
       → new AgentCore({ memory, permissions, context, toolRegistry, keyStore, emit })
       → memory.initialize()                // Create/open SQLite DB
       → keyStore.initialize()              // Decrypt .keystore.enc
-      → toolRegistry.registerBuiltinTools() // Load all 49 tools
+      → toolRegistry.registerBuiltinTools() // Load all 51 tools
   → createWindow()                          // BrowserWindow with vibrancy
   → setupIPC()                              // Register all IPC handlers
 ```
@@ -437,7 +437,7 @@ Other: `strings` command fallback
 **File organization categories (EXT_CATEGORIES):**
 Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, Applications, Fonts — covering 80+ extensions.
 
-#### Office Documents (13 tools) — `office.js`
+#### Office Documents (15 tools) — `office.js`
 
 | Tool | Permission | Description |
 |------|-----------|-------------|
@@ -445,8 +445,10 @@ Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, A
 | `office_pdf_search` | safe | Search for specific terms, phrases, or keywords within a single PDF. Returns matching lines with surrounding context and page numbers. |
 | `office_pdf_ask` | safe | Ask a specific question about a PDF document. For Anthropic and Google providers, sends the entire PDF directly to the AI for native document understanding (perfect for Q&A, summaries, tables, images). |
 | `office_search_pdfs` | safe | Search for a term or phrase across ALL PDF files in a directory (recursive by default). Runs in one Python process — much faster than calling office_pdf_search once per file. |
-| `office_read_docx` | safe | Word document extraction via mammoth (text or HTML) |
-| `office_write_docx` | sensitive | Create DOCX from markdown-like content (headings, bullets, numbered lists) via Office Open XML |
+| `office_read_docx` | safe | Word document extraction via python-docx / mammoth. Modes: text, html, structured (heading hierarchy, tables, metadata). |
+| `office_search_docx` | safe | Search for a specific term or phrase inside a single Word document (.docx). Returns matching paragraphs with surrounding context and section heading. |
+| `office_search_docxs` | safe | Search for a term or phrase across ALL Word documents (.docx) in a directory. Runs in one Python process. |
+| `office_write_docx` | sensitive | Create/update DOCX from markdown-like content (headings, bullets, numbered lists, bold, italic, tables) via Office Open XML. |
 | `office_read_xlsx` | safe | Excel read via SheetJS — summaryOnly mode, merged cells/column widths metadata, row×col dimensions |
 | `office_write_xlsx` | sensitive | Excel write via ExcelJS — full formatting, 12 operation types, financial color coding, autoFormat mode |
 | `office_chart_xlsx` | sensitive | Dynamic pivot/summary tables using SUMIF/COUNTIF/AVERAGEIF formulas (auto-recalculate) |
@@ -911,9 +913,9 @@ OpenDesktop/
 │       │
 │       └── tools/                  # ═══ TOOL IMPLEMENTATIONS ═══
 │           ├── registry.js         # ToolRegistry: registration + provider-specific schemas
-│           ├── tool-schemas.js     # JSON Schema definitions for all 49 tools
+│           ├── tool-schemas.js     # JSON Schema definitions for all 51 tools
 │           ├── filesystem.js       # 11 tools: read, write, edit, list, search, move, organize...
-│           ├── office.js           # 13 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), PPTX (pptxgenjs), CSV
+│           ├── office.js           # 15 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), PPTX (pptxgenjs), CSV
 │           ├── app-control.js      # 6 tools: open (fuzzy), find, list, focus, quit, screenshot
 │           ├── browser.js          # 5 tools: navigate, click, type, key, submit_form
 │           ├── search-fetch.js     # 4 tools: web_search, web_fetch, web_fetch_json, web_download

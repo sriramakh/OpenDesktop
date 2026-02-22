@@ -750,7 +750,10 @@ Perfect for: "find which PDFs mention X", "search my research folder for a speci
   },
 
   office_read_docx: {
-    description: 'Read a Word document (.docx) and extract its text content. Set format="html" for structured output with headings and lists.',
+    description: `Read a Word document (.docx). Three output modes:
+- "text" (default): plain text extraction — fast, good for reading content
+- "html": structured HTML with headings, lists, and formatting preserved
+- "structured": rich outline view using python-docx — shows heading hierarchy, paragraph styles, tables, and metadata (author, title, created/modified dates). Best mode for understanding document structure before editing.`,
     properties: {
       path: {
         type: 'string',
@@ -758,8 +761,8 @@ Perfect for: "find which PDFs mention X", "search my research folder for a speci
       },
       format: {
         type: 'string',
-        description: "Output format: 'text' (default, plain text) or 'html' (structured HTML with headings/lists).",
-        enum: ['text', 'html'],
+        description: "Output mode: 'text' (plain text, default), 'html' (structured HTML), 'structured' (heading hierarchy + tables + metadata).",
+        enum: ['text', 'html', 'structured'],
         default: 'text',
       },
     },
@@ -767,22 +770,81 @@ Perfect for: "find which PDFs mention X", "search my research folder for a speci
   },
 
   office_write_docx: {
-    description: "Create a Word document (.docx) from markdown-like content. Use # for H1, ## for H2, ### for H3, - or * for bullet lists, 1. for numbered lists. Plain text becomes paragraphs.",
+    description: `Create a Word document (.docx) from markdown-like content. Supported syntax:
+- Headings: # H1, ## H2, ### H3, #### H4
+- Bullet lists: - item or * item
+- Numbered lists: 1. item, 2. item
+- Inline formatting: **bold**, *italic*, ***bold+italic***, __underline__, \`code\`
+- Tables: markdown pipe syntax | Col1 | Col2 | (first row = header with dark blue bg)
+- Page break: a line with only --- or === or ***
+- Plain text → Normal paragraph`,
     properties: {
       path: {
         type: 'string',
-        description: 'Absolute path to save the .docx file.',
+        description: 'Absolute path to save the .docx file (created or overwritten).',
       },
       content: {
         type: 'string',
-        description: 'Document content in markdown-like format. Use # H1, ## H2, ### H3, - bullet, 1. numbered.',
+        description: 'Document content using the supported markdown-like syntax described above.',
       },
       title: {
         type: 'string',
-        description: 'Document title (used in metadata). Defaults to filename.',
+        description: 'Document title stored in metadata. Defaults to the filename.',
       },
     },
     required: ['path', 'content'],
+  },
+
+  office_search_docx: {
+    description: `Search for a specific term, phrase, or keyword within a single Word document (.docx).
+Returns matching paragraphs with surrounding context, the section heading they appear under, and the paragraph style.
+Cross-paragraph phrases are handled correctly via text normalization (unlike simple grep).
+Use this to locate specific facts, clauses, names, or sections without reading the whole document.`,
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Absolute path to the .docx file.',
+      },
+      query: {
+        type: 'string',
+        description: 'The term or phrase to search for (case-insensitive).',
+      },
+      maxResults: {
+        type: 'number',
+        description: 'Maximum matching paragraphs to return. Default: 30.',
+      },
+    },
+    required: ['path', 'query'],
+  },
+
+  office_search_docxs: {
+    description: `Search for a term or phrase across ALL Word documents (.docx) in a directory in a single operation.
+Runs one Python process — much faster than calling office_search_docx once per file.
+Returns matches grouped by file with section context.
+Use this for: "find which contracts mention X", "search my reports folder for a specific clause", etc.`,
+    properties: {
+      directory: {
+        type: 'string',
+        description: 'Absolute path to the directory containing .docx files. Searches recursively by default.',
+      },
+      query: {
+        type: 'string',
+        description: 'The term or phrase to search for (case-insensitive). Cross-paragraph phrases handled correctly.',
+      },
+      maxResultsPerFile: {
+        type: 'number',
+        description: 'Maximum matches per DOCX file. Default: 10.',
+      },
+      maxFiles: {
+        type: 'number',
+        description: 'Maximum number of DOCX files to scan. Default: 200.',
+      },
+      recursive: {
+        type: 'boolean',
+        description: 'Search subdirectories recursively. Default: true.',
+      },
+    },
+    required: ['directory', 'query'],
   },
 
   office_read_xlsx: {
