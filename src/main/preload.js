@@ -13,6 +13,13 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── Streaming / event callbacks ────────────────────────────────────────────
 
+  // Server-side taskId assignment (first event for every request)
+  onAgentTaskStart: (cb) => {
+    const handler = (_e, d) => cb(d);
+    ipcRenderer.on('agent:task-start', handler);
+    return () => ipcRenderer.removeListener('agent:task-start', handler);
+  },
+
   // Streaming text token from LLM
   onAgentToken: (cb) => {
     const handler = (_e, d) => cb(d);

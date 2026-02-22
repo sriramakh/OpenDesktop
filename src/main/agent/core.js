@@ -136,6 +136,9 @@ class AgentCore {
     const taskId = uuidv4();
     this.currentTaskId = taskId;
 
+    // Notify the renderer immediately so it can adopt this taskId
+    this.emit('agent:task-start', { taskId });
+
     // Resolve persona
     let resolvedPersona = personaName || this.settings.defaultPersona;
     if (resolvedPersona === 'auto' || !personaName) {

@@ -25,7 +25,7 @@ function toolIcon(name = '') {
   return Wrench;
 }
 
-export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, onCancel, activePersona }) {
+export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, onCancel, activePersona, settings }) {
   const [input, setInput] = useState('');
   const messagesEndRef    = useRef(null);
   const inputRef          = useRef(null);
@@ -124,6 +124,9 @@ export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, 
             Shift+Enter for new line · Enter to send
           </span>
           <span className="text-[10px] text-zinc-600 flex items-center gap-1">
+            <Cpu size={10} />
+            {settings?.llmProvider || 'ollama'}/{settings?.llmModel || '...'}
+            <span className="mx-1 text-zinc-700">·</span>
             {(() => { const Icon = PERSONA_ICONS[activePersona]; return Icon ? <Icon size={10} /> : null; })()}
             {activePersona}
           </span>
@@ -397,12 +400,34 @@ function formatToolInput(input) {
 
 function simpleMarkdown(text) {
   if (!text) return '';
-  return text
+
+  // Escape HTML
+  let html = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/>/g, '&gt;');
+
+  // Code blocks (preserve content inside)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Linkify URLs (http/https) — skip if already inside a tag or code block
+  html = html.replace(
+    /(?<!["'>])(https?:\/\/[^\s<)\]]+)/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">$1</a>'
+  );
+
+  // Linkify absolute file/directory paths (e.g. /Users/..., ~/Documents/...)
+  // Only match paths that look like real filesystem paths (contain at least one /)
+  html = html.replace(
+    /(?<!["'\/a-zA-Z])((?:~|\/(?:Users|home|tmp|var|opt|etc|Volumes))[^\s<,;:)\]"']+)/g,
+    '<a href="file://$1" target="_blank" class="text-blue-400 hover:underline cursor-pointer">$1</a>'
+  );
+
+  // Markdown formatting
+  html = html
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
@@ -412,4 +437,6 @@ function simpleMarkdown(text) {
     .replace(/(<li>.*?<\/li>\n?)+/gs, '<ul>$&</ul>')
     .replace(/\n{2,}/g, '</p><p>')
     .replace(/\n/g, '<br/>');
+
+  return html;
 }

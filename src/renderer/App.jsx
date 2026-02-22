@@ -22,15 +22,19 @@ export default function App() {
   const [showContext,    setShowContext]     = useState(true);
   const [history,        setHistory]        = useState([]);
   const [tools,          setTools]          = useState([]);
+  const [settings,       setSettings]       = useState(null);
 
   // activeTaskId — the ID of the currently running task (for event correlation)
   const activeTaskIdRef = useRef(null);
+
+  const loadSettings = () => api?.getSettings().then(setSettings).catch(console.error);
 
   // ── Initial data load ───────────────────────────────────────────────────────
   useEffect(() => {
     api?.listTools().then(setTools).catch(console.error);
     api?.getHistory(20).then(setHistory).catch(console.error);
     api?.getActiveContext().then(setContextData).catch(console.error);
+    loadSettings();
 
     const interval = setInterval(() => {
       api?.getActiveContext().then(setContextData).catch(() => {});
@@ -56,6 +60,21 @@ export default function App() {
     };
 
     const cleanups = [
+
+      // Server assigns the real taskId — patch the latest placeholder to adopt it
+      api.onAgentTaskStart(({ taskId: serverTaskId }) => {
+        activeTaskIdRef.current = serverTaskId;
+        setMessages((prev) => {
+          // Find the last assistant placeholder that hasn't completed yet
+          const idx = prev.findLastIndex(
+            (m) => m.role === 'assistant' && !m.completed
+          );
+          if (idx === -1) return prev;
+          const updated = [...prev];
+          updated[idx] = { ...updated[idx], taskId: serverTaskId };
+          return updated;
+        });
+      }),
 
       // LLM is starting a new reasoning turn
       api.onAgentThinking(({ taskId, turn }) => {
@@ -285,6 +304,7 @@ export default function App() {
           onSend={handleSend}
           onCancel={handleCancel}
           activePersona={activePersona}
+          settings={settings}
         />
 
         {showContext && <ContextPanel contextData={contextData} tools={tools} />}
@@ -298,7 +318,7 @@ export default function App() {
         />
       )}
 
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showSettings && <SettingsModal onClose={() => { setShowSettings(false); loadSettings(); }} />}
     </div>
   );
 }
