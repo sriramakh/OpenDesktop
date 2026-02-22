@@ -18,6 +18,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const { TOOL_SCHEMAS } = require('./tools/tool-schemas');
 
 class AgentLoop {
   constructor({ toolRegistry, llm, permissions, emit }) {
@@ -226,15 +227,18 @@ class AgentLoop {
 
     const tool = this.toolRegistry.get(tc.name);
 
+    // Normalize inputs: Ollama may send JSON strings for array/object params
+    const normalizedInput = this._normalizeToolInput(tc.name, tc.input);
+
     this.emit('agent:tool-start', {
       taskId,
       id: tc.id,
       name: tc.name,
-      input: tc.input,
+      input: normalizedInput,
     });
 
     try {
-      const output = await tool.execute(tc.input);
+      const output = await tool.execute(normalizedInput);
       const content = output === undefined || output === null ? '' : String(output);
 
       this.emit('agent:tool-end', {
@@ -263,6 +267,32 @@ class AgentLoop {
         error: err.message,
       };
     }
+  }
+
+  // --------------------------------------------------------------------------
+  // Input normalization (for Ollama simplified schemas)
+  // --------------------------------------------------------------------------
+
+  _normalizeToolInput(toolName, input) {
+    if (!input || typeof input !== 'object') return input || {};
+    const schema = TOOL_SCHEMAS[toolName];
+    if (!schema || !schema.properties) return input;
+
+    const normalized = { ...input };
+    for (const [key, val] of Object.entries(normalized)) {
+      const propSchema = schema.properties[key];
+      if (!propSchema) continue;
+
+      // If the schema says array or object but we received a string, try to parse it
+      if ((propSchema.type === 'array' || propSchema.type === 'object') && typeof val === 'string') {
+        try {
+          normalized[key] = JSON.parse(val);
+        } catch {
+          // Leave as-is if it's not valid JSON
+        }
+      }
+    }
+    return normalized;
   }
 
   // --------------------------------------------------------------------------

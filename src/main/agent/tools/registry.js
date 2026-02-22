@@ -65,8 +65,9 @@ class ToolRegistry {
         return this._toAnthropicTools(tools);
       case 'openai':
       case 'deepseek':
-      case 'ollama':
         return this._toOpenAITools(tools);
+      case 'ollama':
+        return this._toOllamaTools(tools);
       case 'google':
         return this._toGeminiTools(tools);
       default:
@@ -90,7 +91,7 @@ class ToolRegistry {
     });
   }
 
-  // ---- OpenAI / DeepSeek / Ollama format ----
+  // ---- OpenAI / DeepSeek format ----
   _toOpenAITools(tools) {
     return tools.map((t) => {
       const schema = TOOL_SCHEMAS[t.name];
@@ -107,6 +108,42 @@ class ToolRegistry {
         },
       };
     });
+  }
+
+  // ---- Ollama format (simplified schemas) ----
+  _toOllamaTools(tools) {
+    return tools.map((t) => {
+      const schema = TOOL_SCHEMAS[t.name];
+      return {
+        type: 'function',
+        function: {
+          name: t.name,
+          description: schema?.description || t.description,
+          parameters: {
+            type: 'object',
+            properties: this._simplifyProperties(schema?.properties || this._inferProperties(t)),
+            required: schema?.required || [],
+          },
+        },
+      };
+    });
+  }
+
+  _simplifyProperties(props) {
+    if (!props) return {};
+    const result = {};
+    for (const [key, val] of Object.entries(props)) {
+      const simpleType = val.type === 'array' ? 'string'
+        : val.type === 'object' ? 'string'
+        : val.type || 'string';
+      const desc = val.type === 'array'
+        ? `${val.description || key} (pass as JSON array string)`
+        : val.type === 'object'
+        ? `${val.description || key} (pass as JSON object string)`
+        : val.description || key;
+      result[key] = { type: simpleType, description: desc };
+    }
+    return result;
   }
 
   // ---- Google Gemini format ----
