@@ -6,6 +6,7 @@ const { SystemTools } = require('./system');
 const { LLMTools } = require('./llm-tools');
 const { OfficeTools } = require('./office');
 const { CONNECTOR_TOOLS } = require('./connectors');
+const { BROWSER_TABS_TOOLS } = require('./browser-tabs');
 const { TOOL_SCHEMAS } = require('./tool-schemas');
 
 class ToolRegistry {
@@ -61,7 +62,8 @@ class ToolRegistry {
     for (const tool of SystemTools)        this.register(tool);
     for (const tool of LLMTools)           this.register(tool);
     for (const tool of OfficeTools)        this.register(tool);
-    for (const tool of CONNECTOR_TOOLS)    this.register(tool);
+    for (const tool of CONNECTOR_TOOLS)      this.register(tool);
+    for (const tool of BROWSER_TABS_TOOLS)  this.register(tool);
 
     console.log(`[ToolRegistry] Registered ${this.tools.size} tools`);
   }

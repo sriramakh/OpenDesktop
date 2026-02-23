@@ -464,6 +464,9 @@ function WelcomeScreen({ activePersona, onSend }) {
       'Create a folder called "Projects" on my Desktop',
       'Read my ~/.zshrc file and show me the aliases',
       'Find all PDF files in my Downloads folder',
+      'Show me all my open browser tabs and close duplicates',
+      'What\'s on my active Chrome tab? Summarize it',
+      'Find and fill the form on my current browser tab',
     ],
     researcher: [
       'Search the web for the latest Claude API documentation',

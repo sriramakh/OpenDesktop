@@ -1175,6 +1175,183 @@ MANDATORY QUALITY RULES — violating any of these produces a bad presentation:
     },
     required: [],
   },
+  // ---------------------------------------------------------------------------
+  // Browser tab management
+  // ---------------------------------------------------------------------------
+
+  tabs_list: {
+    description: 'List all open tabs across one or more browsers (Chrome, Safari, Firefox, Brave, Edge, Arc). Returns each tab\'s browser, window index, tab index, title, URL, and active state. Use windowIndex and tabIndex values with other tabs_* tools.',
+    properties: {
+      browser: {
+        type: 'string',
+        enum: ['all', 'chrome', 'safari', 'firefox', 'brave', 'edge', 'arc', 'opera'],
+        description: 'Which browser(s) to list tabs from. Default: "all" (all running browsers).',
+        default: 'all',
+      },
+    },
+    required: [],
+  },
+
+  tabs_close: {
+    description: 'Close one or more browser tabs. Three modes: (1) specific tab by browser+windowIndex+tabIndex, (2) all tabs matching a URL/title regex pattern, (3) duplicatesOnly=true to remove all duplicate URLs keeping one.',
+    properties: {
+      browser: {
+        type: 'string',
+        enum: ['chrome', 'safari', 'firefox', 'brave', 'edge', 'arc', 'opera'],
+        description: 'Browser to target. Required when closing a specific tab or when using urlPattern with a specific browser.',
+      },
+      windowIndex: {
+        type: 'number',
+        description: 'Window number (from tabs_list). Required with tabIndex for closing a specific tab.',
+      },
+      tabIndex: {
+        type: 'number',
+        description: 'Tab number within the window (from tabs_list). Required with windowIndex for closing a specific tab.',
+      },
+      urlPattern: {
+        type: 'string',
+        description: 'Regular expression to match against tab URLs and titles. Closes all matching tabs across all (or the specified) browser.',
+      },
+      duplicatesOnly: {
+        type: 'boolean',
+        description: 'If true, close all duplicate tabs (same URL), keeping one copy of each. Applies across all browsers if browser is not specified.',
+        default: false,
+      },
+    },
+    required: [],
+  },
+
+  tabs_read: {
+    description: 'Read the visible text content of a browser tab — strips navigation, ads, and scripts, returning only the readable page text. Use tabs_list first to get windowIndex and tabIndex.',
+    properties: {
+      browser: {
+        type: 'string',
+        enum: ['chrome', 'safari', 'firefox', 'brave', 'edge', 'arc', 'opera'],
+        description: 'Browser containing the tab.',
+      },
+      windowIndex: {
+        type: 'number',
+        description: 'Window number (from tabs_list).',
+      },
+      tabIndex: {
+        type: 'number',
+        description: 'Tab number within the window (from tabs_list).',
+      },
+      maxLength: {
+        type: 'number',
+        description: 'Maximum characters to return. Default: 15000.',
+        default: 15000,
+      },
+    },
+    required: ['browser', 'windowIndex', 'tabIndex'],
+  },
+
+  tabs_focus: {
+    description: 'Switch to and activate a specific browser tab, bringing it to the foreground.',
+    properties: {
+      browser: {
+        type: 'string',
+        enum: ['chrome', 'safari', 'firefox', 'brave', 'edge', 'arc', 'opera'],
+        description: 'Browser containing the tab.',
+      },
+      windowIndex: {
+        type: 'number',
+        description: 'Window number (from tabs_list).',
+      },
+      tabIndex: {
+        type: 'number',
+        description: 'Tab number within the window (from tabs_list).',
+      },
+    },
+    required: ['browser', 'windowIndex', 'tabIndex'],
+  },
+
+  tabs_find_duplicates: {
+    description: 'Analyze all open browser tabs to find exact duplicates (identical URL), near-duplicates (same URL ignoring hash/query), and tabs from the same domain. Also reports browser memory usage. Use this before tabs_close to identify what to clean up.',
+    properties: {
+      browser: {
+        type: 'string',
+        enum: ['all', 'chrome', 'safari', 'firefox', 'brave', 'edge', 'arc', 'opera'],
+        description: 'Which browser(s) to analyze. Default: "all".',
+        default: 'all',
+      },
+    },
+    required: [],
+  },
+
+  tabs_find_forms: {
+    description: 'Detect all fillable input fields on a browser tab\'s current page. Returns field type, name, id, label, placeholder, current value (redacted for sensitive fields like passwords), required status, and select options. Use this before tabs_fill_form to see what fields are available.',
+    properties: {
+      browser: {
+        type: 'string',
+        enum: ['chrome', 'safari', 'firefox', 'brave', 'edge', 'arc', 'opera'],
+        description: 'Browser containing the tab.',
+      },
+      windowIndex: {
+        type: 'number',
+        description: 'Window number (from tabs_list).',
+      },
+      tabIndex: {
+        type: 'number',
+        description: 'Tab number within the window (from tabs_list).',
+      },
+    },
+    required: ['browser', 'windowIndex', 'tabIndex'],
+  },
+
+  tabs_fill_form: {
+    description: 'Fill form fields on a browser tab. Uses native value setters so it works with React, Vue, and Angular (fires input/change/blur events). Provide fields as an object mapping field name, id, or label text to value. For sensitive fields (password, CVV), ask the user for the value before calling this tool.',
+    properties: {
+      browser: {
+        type: 'string',
+        enum: ['chrome', 'safari', 'firefox', 'brave', 'edge', 'arc', 'opera'],
+        description: 'Browser containing the tab.',
+      },
+      windowIndex: {
+        type: 'number',
+        description: 'Window number (from tabs_list).',
+      },
+      tabIndex: {
+        type: 'number',
+        description: 'Tab number within the window (from tabs_list).',
+      },
+      fields: {
+        type: 'object',
+        description: 'Map of field identifier → value. Keys can be the field\'s name attribute, id attribute, or label text (case-insensitive). Example: {"email": "user@example.com", "First Name": "John", "city": "New York"}.',
+        additionalProperties: { type: 'string' },
+      },
+      submit: {
+        type: 'boolean',
+        description: 'If true, click the submit button (or call form.submit()) after filling all fields. Default: false — always confirm with the user before submitting.',
+        default: false,
+      },
+    },
+    required: ['browser', 'windowIndex', 'tabIndex', 'fields'],
+  },
+
+  tabs_run_js: {
+    description: 'Execute arbitrary JavaScript in a browser tab and return the result. The return value is JSON-serialized if it\'s an object/array. Use for custom page interactions not covered by other tabs_* tools.',
+    properties: {
+      browser: {
+        type: 'string',
+        enum: ['chrome', 'safari', 'firefox', 'brave', 'edge', 'arc', 'opera'],
+        description: 'Browser containing the tab.',
+      },
+      windowIndex: {
+        type: 'number',
+        description: 'Window number (from tabs_list).',
+      },
+      tabIndex: {
+        type: 'number',
+        description: 'Tab number within the window (from tabs_list).',
+      },
+      code: {
+        type: 'string',
+        description: 'JavaScript code to execute in the tab\'s page context. Can be a single expression or a multi-line function body. The last expression is returned.',
+      },
+    },
+    required: ['browser', 'windowIndex', 'tabIndex', 'code'],
+  },
 };
 
 module.exports = { TOOL_SCHEMAS };

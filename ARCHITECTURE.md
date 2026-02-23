@@ -57,10 +57,10 @@ OpenDesktop is a **local-first autonomous AI agent** that runs natively on macOS
 │  │              │    └── KeyStore (AES-256-GCM)                │  │
 │  │              └── PermissionManager (safe/sensitive/danger)  │  │
 │  │                                                            │  │
-│  │  ┌─── Tool Registry (56 tools) ────────────────────────┐  │  │
+│  │  ┌─── Tool Registry (64 tools) ────────────────────────┐  │  │
 │  │  │ Filesystem(11) │ Office(15) │ AppControl(6)         │  │  │
-│  │  │ Browser(5)     │ Search(4) │ System(6) │ LLM(4)     │  │  │
-│  │  │ Connectors(5)  │                                    │  │  │
+│  │  │ Browser(5)     │ BrowserTabs(8) │ Search(4)         │  │  │
+│  │  │ System(6)      │ LLM(4)      │ Connectors(5)        │  │  │
 │  │  └─────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
@@ -109,7 +109,7 @@ app.whenReady()
       → new AgentCore({ memory, permissions, context, toolRegistry, keyStore, emit })
       → memory.initialize()                // Create/open SQLite DB
       → keyStore.initialize()              // Decrypt .keystore.enc
-      → toolRegistry.registerBuiltinTools() // Load all 56 tools
+      → toolRegistry.registerBuiltinTools() // Load all 64 tools
   → createWindow()                          // BrowserWindow with vibrancy
   → setupIPC()                              // Register all IPC handlers
 ```
@@ -376,7 +376,7 @@ async function listOllamaModels(endpoint) {
 
 The ToolRegistry manages all registered tools and generates provider-specific tool definitions, including dynamic nested schema conversion for strict providers (like Gemini).
 
-**Registration:** `registerBuiltinTools()` loads tools from all category files (filesystem, office, app-control, browser, search-fetch, system, llm-tools).
+**Registration:** `registerBuiltinTools()` loads tools from all category files (filesystem, office, app-control, browser, browser-tabs, connectors, search-fetch, system, llm-tools).
 
 **Provider-specific schema generation:**
 
@@ -525,6 +525,19 @@ Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, A
 | `browser_type` | sensitive | Type text into focused element |
 | `browser_key` | sensitive | Press keyboard shortcut |
 | `browser_submit_form` | dangerous | Submit a web form |
+
+#### Browser Tabs (8 tools) — `browser-tabs.js`
+
+| Tool | Permission | Description |
+|------|-----------|-------------|
+| `tabs_list` | safe | List open tabs across supported browsers (Chrome, Safari, Firefox, Brave, Edge, Arc, Opera). |
+| `tabs_close` | sensitive | Close specific tabs, tabs by URL/title pattern, or duplicate tabs. |
+| `tabs_read` | safe | Read visible page text from a tab (cleaned, readable content). |
+| `tabs_focus` | sensitive | Focus and activate a specific tab/window. |
+| `tabs_find_duplicates` | safe | Analyze open tabs to find exact/near duplicates and domain clustering. |
+| `tabs_find_forms` | safe | Detect fillable form fields with metadata and options. |
+| `tabs_fill_form` | sensitive | Fill tab form fields (React/Vue/Angular-compatible event firing). |
+| `tabs_run_js` | dangerous | Execute custom JavaScript in a tab and return result. |
 
 #### Search & Fetch (4 tools) — `search-fetch.js`
 
@@ -924,12 +937,13 @@ OpenDesktop/
 │       │
 │       └── tools/                  # ═══ TOOL IMPLEMENTATIONS ═══
 │           ├── registry.js         # ToolRegistry: registration + provider-specific schemas
-│           ├── tool-schemas.js     # JSON Schema definitions for all 56 tools
+│           ├── tool-schemas.js     # JSON Schema definitions for all 64 tools
 │           ├── filesystem.js       # 11 tools: read, write, edit, list, search, move, organize...
 │           ├── office.js           # 15 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), PPTX (pptxgenjs), CSV
 │           ├── connectors.js       # 5 tools: Google Drive, Gmail, Calendar integration
 │           ├── app-control.js      # 6 tools: open (fuzzy), find, list, focus, quit, screenshot
 │           ├── browser.js          # 5 tools: navigate, click, type, key, submit_form
+│           ├── browser-tabs.js     # 8 tools: browser tab listing, cleanup, reading, forms, and JS
 │           ├── search-fetch.js     # 4 tools: web_search, web_fetch, web_fetch_json, web_download
 │           ├── system.js           # 6 tools: exec, info, processes, clipboard, notify
 │           └── llm-tools.js        # 4 tools: query, summarize, extract, code
