@@ -57,9 +57,9 @@ OpenDesktop is a **local-first autonomous AI agent** that runs natively on macOS
 │  │              │    └── KeyStore (AES-256-GCM)                │  │
 │  │              └── PermissionManager (safe/sensitive/danger)  │  │
 │  │                                                            │  │
-│  │  ┌─── Tool Registry (64 tools) ────────────────────────┐  │  │
+│  │  ┌─── Tool Registry (65 tools) ────────────────────────┐  │  │
 │  │  │ Filesystem(11) │ Office(15) │ AppControl(6)         │  │  │
-│  │  │ Browser(5)     │ BrowserTabs(8) │ Search(4)         │  │  │
+│  │  │ Browser(5)     │ BrowserTabs(9) │ Search(4)         │  │  │
 │  │  │ System(6)      │ LLM(4)      │ Connectors(5)        │  │  │
 │  │  └─────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────┘  │
@@ -109,7 +109,7 @@ app.whenReady()
       → new AgentCore({ memory, permissions, context, toolRegistry, keyStore, emit })
       → memory.initialize()                // Create/open SQLite DB
       → keyStore.initialize()              // Decrypt .keystore.enc
-      → toolRegistry.registerBuiltinTools() // Load all 64 tools
+      → toolRegistry.registerBuiltinTools() // Load all 65 tools
   → createWindow()                          // BrowserWindow with vibrancy
   → setupIPC()                              // Register all IPC handlers
 ```
@@ -526,11 +526,12 @@ Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, A
 | `browser_key` | sensitive | Press keyboard shortcut |
 | `browser_submit_form` | dangerous | Submit a web form |
 
-#### Browser Tabs (8 tools) — `browser-tabs.js`
+#### Browser Tabs (9 tools) — `browser-tabs.js`
 
 | Tool | Permission | Description |
 |------|-----------|-------------|
 | `tabs_list` | safe | List open tabs across supported browsers (Chrome, Safari, Firefox, Brave, Edge, Arc, Opera). |
+| `tabs_navigate` | sensitive | Navigate an existing tab or open a new tab in an already running browser session. |
 | `tabs_close` | sensitive | Close specific tabs, tabs by URL/title pattern, or duplicate tabs. |
 | `tabs_read` | safe | Read visible page text from a tab (cleaned, readable content). |
 | `tabs_focus` | sensitive | Focus and activate a specific tab/window. |
@@ -937,13 +938,13 @@ OpenDesktop/
 │       │
 │       └── tools/                  # ═══ TOOL IMPLEMENTATIONS ═══
 │           ├── registry.js         # ToolRegistry: registration + provider-specific schemas
-│           ├── tool-schemas.js     # JSON Schema definitions for all 64 tools
+│           ├── tool-schemas.js     # JSON Schema definitions for all 65 tools
 │           ├── filesystem.js       # 11 tools: read, write, edit, list, search, move, organize...
 │           ├── office.js           # 15 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), PPTX (pptxgenjs), CSV
 │           ├── connectors.js       # 5 tools: Google Drive, Gmail, Calendar integration
 │           ├── app-control.js      # 6 tools: open (fuzzy), find, list, focus, quit, screenshot
 │           ├── browser.js          # 5 tools: navigate, click, type, key, submit_form
-│           ├── browser-tabs.js     # 8 tools: browser tab listing, cleanup, reading, forms, and JS
+│           ├── browser-tabs.js     # 9 tools: browser tab listing/navigation, cleanup, reading, forms, and JS
 │           ├── search-fetch.js     # 4 tools: web_search, web_fetch, web_fetch_json, web_download
 │           ├── system.js           # 6 tools: exec, info, processes, clipboard, notify
 │           └── llm-tools.js        # 4 tools: query, summarize, extract, code
