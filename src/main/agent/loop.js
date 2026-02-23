@@ -248,36 +248,63 @@ class AgentLoop {
       input: normalizedInput,
     });
 
-    try {
-      const output = await tool.execute(normalizedInput);
-      const content = output === undefined || output === null ? '' : String(output);
+    // Determine timeout: office_* and browser_* tools get 120s; others get 30s
+    const isLongRunning = tc.name.startsWith('office_') || tc.name.startsWith('browser_');
+    const timeoutMs = isLongRunning ? 120_000 : 30_000;
 
-      this.emit('agent:tool-end', {
-        taskId,
-        id: tc.id,
-        name: tc.name,
-        success: true,
-        outputPreview: content.slice(0, 300),
-      });
+    // Transient errors worth retrying
+    const isTransient = (err) =>
+      err && /EBUSY|ETIMEDOUT|EAGAIN/i.test(err.code || err.message || '');
 
-      return { id: tc.id, name: tc.name, content };
-    } catch (err) {
-      this.emit('agent:tool-end', {
-        taskId,
-        id: tc.id,
-        name: tc.name,
-        success: false,
-        error: err.message,
-      });
+    const MAX_RETRIES = 2;
+    let lastErr = null;
 
-      // Return error as content so the LLM can recover
-      return {
-        id: tc.id,
-        name: tc.name,
-        content: `Error executing ${tc.name}: ${err.message}`,
-        error: err.message,
-      };
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const output = await Promise.race([
+          tool.execute(normalizedInput),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`Tool "${tc.name}" timed out after ${timeoutMs / 1000}s`)), timeoutMs)
+          ),
+        ]);
+
+        const content = output === undefined || output === null ? '' : String(output);
+
+        this.emit('agent:tool-end', {
+          taskId,
+          id: tc.id,
+          name: tc.name,
+          success: true,
+          outputPreview: content.slice(0, 300),
+        });
+
+        return { id: tc.id, name: tc.name, content };
+      } catch (err) {
+        lastErr = err;
+        // Only retry on transient errors, and not on the last attempt
+        if (isTransient(err) && attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, 300));
+          continue;
+        }
+        break;
+      }
     }
+
+    this.emit('agent:tool-end', {
+      taskId,
+      id: tc.id,
+      name: tc.name,
+      success: false,
+      error: lastErr.message,
+    });
+
+    // Return error as content so the LLM can recover
+    return {
+      id: tc.id,
+      name: tc.name,
+      content: `Error executing ${tc.name}: ${lastErr.message}`,
+      error: lastErr.message,
+    };
   }
 
   // --------------------------------------------------------------------------
@@ -329,6 +356,15 @@ class AgentLoop {
   // --------------------------------------------------------------------------
 
   _normalizeToolInput(toolName, input) {
+    // Gemini sometimes wraps the entire args object as a JSON string
+    if (input && typeof input === 'string') {
+      try {
+        input = JSON.parse(input);
+      } catch {
+        return {};
+      }
+    }
+
     if (!input || typeof input !== 'object') return input || {};
     const schema = TOOL_SCHEMAS[toolName];
     if (!schema || !schema.properties) return input;

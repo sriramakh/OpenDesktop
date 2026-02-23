@@ -39,6 +39,7 @@ import {
   Sun,
   Moon,
   Sunset,
+  FolderOpen,
 } from 'lucide-react';
 
 const api = window.api;
@@ -137,14 +138,15 @@ const PROVIDER_META = {
 };
 
 const DEFAULT_SETTINGS = {
-  llmProvider: 'ollama',
-  llmModel: 'llama3',
-  maxSteps: 20,
-  autoApproveRead: true,
+  llmProvider:      'ollama',
+  llmModel:         'llama3',
+  maxSteps:         20,
+  autoApproveRead:  true,
   autoApproveWrite: false,
-  defaultPersona: 'planner',
-  temperature: 0.7,
-  maxTokens: 4096,
+  defaultPersona:   'planner',
+  temperature:      0.7,
+  maxTokens:        4096,
+  workingDirectory: '',
 };
 
 export default function SettingsModal({ onClose, theme = 'dark', onThemeChange }) {
@@ -675,6 +677,32 @@ export default function SettingsModal({ onClose, theme = 'dark', onThemeChange }
 
           {activeTab === 'agent' && (
             <>
+              <Field label="Working Directory" icon={FolderOpen}>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={settings.workingDirectory || ''}
+                    onChange={(e) => updateField('workingDirectory', e.target.value)}
+                    className="input-field flex-1"
+                    placeholder="e.g. /Users/you/Desktop"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const dir = await api?.selectDirectory();
+                      if (dir) updateField('workingDirectory', dir);
+                    }}
+                    className="shrink-0 flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-surface-2 border border-surface-3 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-surface-3 transition-colors"
+                  >
+                    <FolderOpen size={12} />
+                    Browse
+                  </button>
+                </div>
+                <p className="text-[10px] text-zinc-600 mt-1">
+                  Default location for file operations. The agent will use this directory unless you specify another path.
+                </p>
+              </Field>
+
               <Field label="Default Persona">
                 <select
                   value={settings.defaultPersona}

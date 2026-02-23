@@ -125,6 +125,16 @@ const TOOL_SCHEMAS = {
         type: 'string',
         description: 'Optional: only return files whose content contains this string (case-insensitive grep).',
       },
+      maxDepth: {
+        type: 'number',
+        description: 'How deep to search into subdirectories. Default: 15.',
+        default: 15,
+      },
+      dot: {
+        type: 'boolean',
+        description: 'Include hidden files/directories (starting with .). Default: false.',
+        default: false,
+      },
     },
     required: ['pattern', 'cwd'],
   },
@@ -1082,6 +1092,88 @@ MANDATORY QUALITY RULES — violating any of these produces a bad presentation:
       },
     },
     required: ['path', 'rows'],
+  },
+
+  // ---------------------------------------------------------------------------
+  // Connector tools (Google Drive, Gmail, Calendar)
+  // ---------------------------------------------------------------------------
+
+  connector_drive_search: {
+    description: "Search Google Drive files by name, type, or query. Requires Google Drive connection.",
+    properties: {
+      query: {
+        type: 'string',
+        description: "Drive search query (e.g. \"name contains 'report'\", \"mimeType='application/pdf'\").",
+      },
+      maxResults: {
+        type: 'number',
+        description: 'Maximum results to return. Default: 10.',
+        default: 10,
+      },
+    },
+    required: ['query'],
+  },
+
+  connector_drive_read: {
+    description: "Read the text content of a Google Drive file by its file ID.",
+    properties: {
+      fileId: {
+        type: 'string',
+        description: 'Google Drive file ID (from connector_drive_search results).',
+      },
+      mimeType: {
+        type: 'string',
+        description: 'MIME type of the file (optional; helps determine export format).',
+      },
+    },
+    required: ['fileId'],
+  },
+
+  connector_gmail_search: {
+    description: "Search Gmail emails by query. Requires Gmail connection.",
+    properties: {
+      query: {
+        type: 'string',
+        description: "Gmail search query (e.g. \"from:boss@example.com\", \"subject:invoice\", \"is:unread\").",
+      },
+      maxResults: {
+        type: 'number',
+        description: 'Maximum results to return. Default: 10.',
+        default: 10,
+      },
+    },
+    required: ['query'],
+  },
+
+  connector_gmail_read: {
+    description: "Read the full content of a Gmail email by message ID.",
+    properties: {
+      messageId: {
+        type: 'string',
+        description: 'Gmail message ID (from connector_gmail_search results).',
+      },
+    },
+    required: ['messageId'],
+  },
+
+  connector_calendar_events: {
+    description: "List upcoming Google Calendar events within a date range. Requires Google Calendar connection.",
+    properties: {
+      timeMin: {
+        type: 'string',
+        description: 'Start of date range in ISO 8601 format (e.g. "2026-02-23T00:00:00Z"). Defaults to now.',
+      },
+      timeMax: {
+        type: 'string',
+        description: 'End of date range in ISO 8601 format. Defaults to 7 days from now.',
+      },
+      maxResults: {
+        type: 'number',
+        description: 'Maximum events to return. Default: 10.',
+        default: 10,
+      },
+    },
+    required: [],
   },
 };
 

@@ -42,7 +42,8 @@ Built with **Electron + React + Node.js** — everything runs locally on your ma
 │  │  • Search/Fetch (4)  │  ├──────────────────────────┤ │
 │  │  • System (6)        │  │  Permission Manager       │ │
 │  │  • LLM (4)           │  │  safe / sensitive / danger │ │
-│  │  Total: 51 tools     │  └──────────────────────────┘ │
+│  │  • Connectors (5)    │  │                          │ │
+│  │  Total: 56 tools     │  └──────────────────────────┘ │
 │  └──────────────────────┘                                │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -107,7 +108,7 @@ Choose from **10 providers** and **80+ models** directly in the Settings UI:
 - **Encrypted API key storage** — AES-256-GCM encryption with machine-specific key derivation (PBKDF2, 100K iterations)
 - Keys are stored in `~/.config/open-desktop/.keystore.enc`, never in plaintext
 
-### Unified Tool System (51 tools)
+### Unified Tool System (56 tools)
 
 All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native function calling with every LLM provider.
 
@@ -115,12 +116,13 @@ All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native f
 |----------|-------|:-----:|------------|
 | **Filesystem** | `fs_read`, `fs_write`, `fs_edit`, `fs_list`, `fs_search`, `fs_delete`, `fs_move`, `fs_mkdir`, `fs_tree`, `fs_info`, `fs_organize` | 11 | Safe/Sensitive/Dangerous |
 | **Office Documents** | `office_read_pdf`, `office_pdf_search`, `office_pdf_ask`, `office_search_pdfs`, `office_read_docx`, `office_search_docx`, `office_search_docxs`, `office_write_docx`, `office_read_xlsx`, `office_write_xlsx`, `office_chart_xlsx`, `office_read_pptx`, `office_write_pptx`, `office_read_csv`, `office_write_csv` | 15 | Safe/Sensitive |
+| **Google Connectors** | `connector_drive_search`, `connector_drive_read`, `connector_gmail_search`, `connector_gmail_read`, `connector_calendar_events` | 5 | Safe |
 | **App Control** | `app_open`, `app_find`, `app_list`, `app_focus`, `app_quit`, `app_screenshot` | 6 | Safe/Sensitive |
 | **Browser** | `browser_navigate`, `browser_click`, `browser_type`, `browser_key`, `browser_submit_form` | 5 | Sensitive/Dangerous |
 | **Search/Fetch** | `web_search`, `web_fetch`, `web_fetch_json`, `web_download` | 4 | Safe/Sensitive |
 | **System** | `system_exec`, `system_info`, `system_processes`, `system_clipboard_read`, `system_clipboard_write`, `system_notify` | 6 | Safe/Sensitive |
 | **LLM** | `llm_query`, `llm_summarize`, `llm_extract`, `llm_code` | 4 | Safe |
-| **Total** | | **51** | |
+| **Total** | | **56** | |
 
 #### Key tool capabilities
 
@@ -139,6 +141,8 @@ All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native f
   - Read modes: plain text, HTML, or structured (heading hierarchy, tables, metadata via `python-docx`)
   - Write DOCX from markdown-like content (headings, bullets, tables, bold/italic formatting)
   - Single and batch searching across multiple DOCX files using Python
+- **Google Connectors** — securely authenticate to read Google Drive files, search Gmail, and fetch Calendar events.
+- **File Attachments** — click the paperclip icon in the UI to attach files directly to your prompt.
 - **`office_read_xlsx`** — Excel read via SheetJS with `summaryOnly` mode, merged cells/column widths metadata, row×col dimensions
 - **`office_write_xlsx`** — Excel write via ExcelJS with full formatting, 12 operation types (`set_cell`, `format_range`, `freeze_panes`, `merge_cells`, `create_table`, `auto_fit_columns`, etc.), financial color coding, and `autoFormat` mode
 - **`office_chart_xlsx`** — Dynamic pivot/summary tables using SUMIF/COUNTIF/AVERAGEIF formulas that auto-recalculate when source data changes
@@ -267,9 +271,10 @@ OpenDesktop/
 │   │       ├── context.js       # OS context awareness
 │   │       └── tools/
 │   │           ├── registry.js      # Tool registration + provider-specific schema generation
-│   │           ├── tool-schemas.js  # JSON Schema definitions for all 51 tools
+│   │           ├── tool-schemas.js  # JSON Schema definitions for all 56 tools
 │   │           ├── filesystem.js    # 11 file ops (read, write, move, organize, tree, etc.)
 │   │           ├── office.js        # 15 office document ops (PDF, DOCX, XLSX, PPTX, CSV)
+│   │           ├── connectors.js    # 5 Google Workspace integration ops (Drive, Gmail, Calendar)
 │   │           ├── app-control.js   # 6 app ops (open with fuzzy match, find, list, etc.)
 │   │           ├── browser.js       # 5 browser/UI automation ops
 │   │           ├── search-fetch.js  # 4 web ops

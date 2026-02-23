@@ -2,8 +2,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   // ── Agent ──────────────────────────────────────────────────────────────────
-  sendMessage: (message, persona) =>
-    ipcRenderer.invoke('agent:send-message', { message, persona }),
+  sendMessage: (message, persona, attachments) =>
+    ipcRenderer.invoke('agent:send-message', { message, persona, attachments }),
   cancelTask: () =>
     ipcRenderer.invoke('agent:cancel'),
   approvalResponse: (requestId, approved, note) =>
@@ -122,6 +122,15 @@ contextBridge.exposeInMainWorld('api', {
   removeApiKey: (provider)         => ipcRenderer.invoke('keys:remove', { provider }),
   listApiKeys:  ()                 => ipcRenderer.invoke('keys:list'),
   hasApiKey:    (provider)         => ipcRenderer.invoke('keys:has',    { provider }),
+
+  // ── Dialogs ────────────────────────────────────────────────────────────────
+  selectDirectory: () => ipcRenderer.invoke('dialog:select-directory'),
+  selectFiles:     () => ipcRenderer.invoke('dialog:select-files'),
+
+  // ── Google Connectors ──────────────────────────────────────────────────────
+  connectorConnect:    (service) => ipcRenderer.invoke('connector:connect',    { service }),
+  connectorDisconnect: (service) => ipcRenderer.invoke('connector:disconnect', { service }),
+  connectorStatus:     (service) => ipcRenderer.invoke('connector:status',     { service }),
 
   // ── MCP Servers ────────────────────────────────────────────────────────────
   listMCPServers:     ()       => ipcRenderer.invoke('mcp:list-servers'),

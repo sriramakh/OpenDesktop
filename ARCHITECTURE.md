@@ -57,9 +57,10 @@ OpenDesktop is a **local-first autonomous AI agent** that runs natively on macOS
 │  │              │    └── KeyStore (AES-256-GCM)                │  │
 │  │              └── PermissionManager (safe/sensitive/danger)  │  │
 │  │                                                            │  │
-│  │  ┌─── Tool Registry (51 tools) ────────────────────────┐  │  │
+│  │  ┌─── Tool Registry (56 tools) ────────────────────────┐  │  │
 │  │  │ Filesystem(11) │ Office(15) │ AppControl(6)         │  │  │
 │  │  │ Browser(5)     │ Search(4) │ System(6) │ LLM(4)     │  │  │
+│  │  │ Connectors(5)  │                                    │  │  │
 │  │  └─────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
@@ -108,7 +109,7 @@ app.whenReady()
       → new AgentCore({ memory, permissions, context, toolRegistry, keyStore, emit })
       → memory.initialize()                // Create/open SQLite DB
       → keyStore.initialize()              // Decrypt .keystore.enc
-      → toolRegistry.registerBuiltinTools() // Load all 51 tools
+      → toolRegistry.registerBuiltinTools() // Load all 56 tools
   → createWindow()                          // BrowserWindow with vibrancy
   → setupIPC()                              // Register all IPC handlers
 ```
@@ -493,6 +494,16 @@ Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, A
 - `[Content_Types].xml`, `_rels/.rels`, `word/document.xml`, `word/styles.xml`, `word/numbering.xml`
 - Supports headings (H1-H3), paragraphs, bullet lists, numbered lists
 - Proper XML escaping and namespace declarations
+
+#### Google Connectors (5 tools) — `connectors.js`
+
+| Tool | Permission | Description |
+|------|-----------|-------------|
+| `connector_drive_search` | safe | Search Google Drive files by name, type, or query. |
+| `connector_drive_read` | safe | Read the text content of a Google Drive file by ID. |
+| `connector_gmail_search` | safe | Search Gmail emails by query (e.g. `from:boss`, `is:unread`). |
+| `connector_gmail_read` | safe | Read the full content of a Gmail email by ID. |
+| `connector_calendar_events` | safe | List upcoming Google Calendar events within a date range. |
 
 #### App Control (6 tools) — `app-control.js`
 
@@ -913,9 +924,10 @@ OpenDesktop/
 │       │
 │       └── tools/                  # ═══ TOOL IMPLEMENTATIONS ═══
 │           ├── registry.js         # ToolRegistry: registration + provider-specific schemas
-│           ├── tool-schemas.js     # JSON Schema definitions for all 51 tools
+│           ├── tool-schemas.js     # JSON Schema definitions for all 56 tools
 │           ├── filesystem.js       # 11 tools: read, write, edit, list, search, move, organize...
 │           ├── office.js           # 15 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), PPTX (pptxgenjs), CSV
+│           ├── connectors.js       # 5 tools: Google Drive, Gmail, Calendar integration
 │           ├── app-control.js      # 6 tools: open (fuzzy), find, list, focus, quit, screenshot
 │           ├── browser.js          # 5 tools: navigate, click, type, key, submit_form
 │           ├── search-fetch.js     # 4 tools: web_search, web_fetch, web_fetch_json, web_download

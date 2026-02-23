@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, dialog } = require('electron');
 const path = require('path');
 const { AgentCore }        = require('./agent/core');
 const { ToolRegistry }     = require('./agent/tools/registry');
@@ -8,6 +8,7 @@ const { ContextAwareness } = require('./agent/context');
 const { KeyStore }         = require('./agent/keystore');
 const { MCPManager }       = require('./agent/mcp/manager');
 const { getModelCatalog, listOllamaModels } = require('./agent/llm');
+const google = require('./connectors/google');
 
 let mainWindow  = null;
 let agentCore   = null;
@@ -83,9 +84,9 @@ async function initializeAgent() {
 function setupIPC() {
   // ── Agent ──────────────────────────────────────────────────────────────────
 
-  ipcMain.handle('agent:send-message', async (_event, { message, persona }) => {
+  ipcMain.handle('agent:send-message', async (_event, { message, persona, attachments }) => {
     try {
-      return await agentCore.handleUserMessage(message, persona);
+      return await agentCore.handleUserMessage(message, persona, attachments);
     } catch (err) {
       console.error('[IPC] agent:send-message error:', err);
       return { error: err.message };
@@ -206,6 +207,46 @@ function setupIPC() {
       console.error('[IPC] mcp:reconnect-server error:', err);
       return { error: err.message };
     }
+  });
+
+  // ── Dialog ─────────────────────────────────────────────────────────────────
+
+  ipcMain.handle('dialog:select-directory', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: 'Select Working Directory',
+    });
+    return result.canceled ? null : result.filePaths[0];
+  });
+
+  ipcMain.handle('dialog:select-files', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile', 'multiSelections'],
+      title: 'Attach Files',
+    });
+    return result.canceled ? [] : result.filePaths;
+  });
+
+  // ── Google Connectors ──────────────────────────────────────────────────────
+
+  ipcMain.handle('connector:connect', async (_event, { service }) => {
+    try {
+      return await google.connect(service);
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+
+  ipcMain.handle('connector:disconnect', async (_event, { service }) => {
+    try {
+      return await google.disconnect(service);
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+
+  ipcMain.handle('connector:status', async (_event, { service }) => {
+    return google.isConnected(service);
   });
 
   // ── Window controls ────────────────────────────────────────────────────────

@@ -498,16 +498,16 @@ const FilesystemTools = [
     description: 'Search for files matching a glob pattern (e.g. "**/*.txt", "**/*.pdf") within a directory. Returns full absolute paths. Use cwd to set the search root (e.g. ~/Desktop). Optionally grep for text content inside matching files.',
     params: ['pattern', 'cwd', 'maxResults', 'contentMatch'],
     permissionLevel: 'safe',
-    async execute({ pattern, cwd = '.', maxResults = 50, contentMatch }) {
+    async execute({ pattern, cwd = '.', maxResults = 50, contentMatch, maxDepth = 15, dot = false }) {
       if (!pattern) throw new Error('pattern is required');
       const resolved = resolvePath(cwd);
       guardPath(resolved);
 
       const matches = await glob(pattern, {
         cwd: resolved,
-        nodir: false,
-        dot: false,
-        maxDepth: 8,
+        nodir: !!contentMatch, // content search only applies to files
+        dot,
+        maxDepth,
       });
 
       let fullPaths = matches.map((m) => path.join(resolved, m));
@@ -528,10 +528,18 @@ const FilesystemTools = [
             }
           } catch { /* skip unreadable */ }
         }
-        return JSON.stringify(contentMatched.slice(0, maxResults));
+        const results = contentMatched.slice(0, maxResults);
+        if (results.length === 0) {
+          return `No files found matching pattern "${pattern}" with content "${contentMatch}" in ${resolved}. Try a broader pattern or a different directory.`;
+        }
+        return JSON.stringify(results);
       }
 
-      return JSON.stringify(fullPaths.slice(0, maxResults));
+      const results = fullPaths.slice(0, maxResults);
+      if (results.length === 0) {
+        return `No files found matching pattern "${pattern}" in ${resolved}. Try a broader pattern (e.g. "**/${pattern}") or check the directory path.`;
+      }
+      return JSON.stringify(results);
     },
   },
 

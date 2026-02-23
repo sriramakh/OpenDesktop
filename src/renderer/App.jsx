@@ -235,13 +235,18 @@ export default function App() {
 
   // ── Send a message ───────────────────────────────────────────────────────────
   const handleSend = useCallback(
-    async (message) => {
+    async (message, attachments) => {
       if (!message.trim() || isProcessing) return;
 
       const taskId = uid();
       activeTaskIdRef.current = taskId;
 
-      const userMsg = { role: 'user', content: message.trim(), timestamp: Date.now() };
+      const userMsg = {
+        role: 'user',
+        content: message.trim(),
+        attachments: attachments || [],
+        timestamp: Date.now(),
+      };
 
       const placeholderMsg = {
         role:       'assistant',
@@ -262,7 +267,7 @@ export default function App() {
       setPhaseLabel('Gathering context...');
 
       try {
-        const result = await api.sendMessage(message.trim(), activePersona);
+        const result = await api.sendMessage(message.trim(), activePersona, attachments || []);
         if (result?.error) {
           setIsProcessing(false);
           setPhaseLabel('');
@@ -357,6 +362,7 @@ export default function App() {
           activePersona={activePersona}
           settings={settings}
           isHistoryReplay={selectedHistoryId !== null}
+          onSettingsChange={loadSettings}
         />
 
         {showContext && <ContextPanel contextData={contextData} tools={tools} />}

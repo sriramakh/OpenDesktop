@@ -1,10 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Send, StopCircle, Brain, Zap, Search, Settings,
   Loader2, CheckCircle2, XCircle, AlertTriangle,
   ChevronDown, ChevronRight, Wrench, Bot, Sparkles,
   Terminal, Globe, FolderOpen, Cpu, RefreshCw, Eye,
+  Paperclip, X as XIcon, Plug, HardDrive, Check,
+  Calendar, Mail,
 } from 'lucide-react';
+
+const api = window.api;
 
 const PERSONA_ICONS  = { auto: Sparkles, planner: Brain, executor: Zap, researcher: Search, custom: Settings };
 const PERSONA_COLORS = {
@@ -25,10 +29,15 @@ function toolIcon(name = '') {
   return Wrench;
 }
 
-export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, onCancel, activePersona, settings, isHistoryReplay }) {
-  const [input, setInput] = useState('');
-  const messagesEndRef    = useRef(null);
-  const inputRef          = useRef(null);
+export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, onCancel, activePersona, settings, isHistoryReplay, onSettingsChange }) {
+  const [input, setInput]           = useState('');
+  const [attachments, setAttachments] = useState([]);
+  const [showModelPicker, setShowModelPicker] = useState(false);
+  const [showConnectors, setShowConnectors]   = useState(false);
+  const messagesEndRef = useRef(null);
+  const inputRef       = useRef(null);
+  const modelPickerRef = useRef(null);
+  const connectorsRef  = useRef(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -38,11 +47,35 @@ export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, 
     if (!isProcessing) inputRef.current?.focus();
   }, [isProcessing]);
 
+  // Close popovers on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target)) {
+        setShowModelPicker(false);
+      }
+      if (connectorsRef.current && !connectorsRef.current.contains(e.target)) {
+        setShowConnectors(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Close popovers on Escape
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'Escape') { setShowModelPicker(false); setShowConnectors(false); }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (input.trim() && !isProcessing) {
-      onSend(input);
+      onSend(input, attachments);
       setInput('');
+      setAttachments([]);
     }
   };
 
@@ -51,6 +84,17 @@ export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, 
       e.preventDefault();
       handleSubmit(e);
     }
+  };
+
+  const handleAttach = async () => {
+    const files = await api?.selectFiles();
+    if (files && files.length > 0) {
+      setAttachments((prev) => [...new Set([...prev, ...files])]);
+    }
+  };
+
+  const removeAttachment = (fp) => {
+    setAttachments((prev) => prev.filter((f) => f !== fp));
   };
 
   return (
@@ -88,7 +132,54 @@ export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, 
 
       {/* Input */}
       <div className="shrink-0 border-t border-surface-3 bg-surface-1 px-4 py-3">
-        <form onSubmit={handleSubmit} className="flex items-end gap-3">
+        {/* Attachment chips */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {attachments.map((fp) => (
+              <div key={fp} className="flex items-center gap-1 bg-accent/10 border border-accent/20 rounded-lg px-2 py-0.5">
+                <Paperclip size={10} className="text-accent shrink-0" />
+                <span className="text-[10px] text-accent max-w-[180px] truncate" title={fp}>
+                  {fp.split('/').pop()}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(fp)}
+                  className="text-accent/60 hover:text-accent transition-colors ml-0.5"
+                >
+                  <XIcon size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="flex items-end gap-2">
+          {/* Attach file button */}
+          <button
+            type="button"
+            onClick={handleAttach}
+            disabled={isProcessing}
+            title="Attach files"
+            className="shrink-0 p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-surface-3 transition-colors disabled:opacity-40"
+          >
+            <Paperclip size={16} />
+          </button>
+
+          {/* Connectors button */}
+          <div className="relative shrink-0" ref={connectorsRef}>
+            <button
+              type="button"
+              onClick={() => { setShowConnectors(!showConnectors); setShowModelPicker(false); }}
+              title="Google connectors"
+              className={`p-2 rounded-lg transition-colors ${showConnectors ? 'text-accent bg-accent/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-surface-3'}`}
+            >
+              <Plug size={16} />
+            </button>
+            {showConnectors && (
+              <ConnectorsPopover onClose={() => setShowConnectors(false)} />
+            )}
+          </div>
+
           <div className="flex-1 relative">
             <textarea
               ref={inputRef}
@@ -127,19 +218,230 @@ export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, 
             </div>
           </div>
         </form>
+
         <div className="flex items-center justify-between mt-2 px-1">
           <span className="text-[10px] text-zinc-600">
             Shift+Enter for new line · Enter to send
           </span>
-          <span className="text-[10px] text-zinc-600 flex items-center gap-1">
-            <Cpu size={10} />
-            {settings?.llmProvider || 'ollama'}/{settings?.llmModel || '...'}
-            <span className="mx-1 text-zinc-700">·</span>
-            {(() => { const Icon = PERSONA_ICONS[activePersona]; return Icon ? <Icon size={10} /> : null; })()}
-            {activePersona}
-          </span>
+          {/* Inline model picker trigger */}
+          <div className="relative" ref={modelPickerRef}>
+            <button
+              type="button"
+              onClick={() => { setShowModelPicker(!showModelPicker); setShowConnectors(false); }}
+              className="text-[10px] text-zinc-500 hover:text-zinc-300 flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-surface-3 transition-colors"
+              title="Click to change model"
+            >
+              <Cpu size={10} />
+              {settings?.llmProvider || 'ollama'}/{settings?.llmModel || '...'}
+              <ChevronDown size={9} className="opacity-60" />
+              <span className="mx-0.5 text-zinc-700">·</span>
+              {(() => { const Icon = PERSONA_ICONS[activePersona]; return Icon ? <Icon size={10} /> : null; })()}
+              {activePersona}
+            </button>
+            {showModelPicker && (
+              <ModelPickerPopover
+                settings={settings}
+                onApply={() => { setShowModelPicker(false); onSettingsChange?.(); }}
+                onClose={() => setShowModelPicker(false)}
+              />
+            )}
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Model Picker Popover ──────────────────────────────────────────────────────
+
+function ModelPickerPopover({ settings, onApply, onClose }) {
+  const [catalog, setCatalog]         = useState(null);
+  const [ollamaModels, setOllamaModels] = useState([]);
+  const [provider, setProvider]       = useState(settings?.llmProvider || 'ollama');
+  const [model, setModel]             = useState(settings?.llmModel || '');
+  const [saving, setSaving]           = useState(false);
+
+  useEffect(() => {
+    api?.getModelCatalog().then(setCatalog).catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    if (provider === 'ollama') {
+      api?.listOllamaModels().then(setOllamaModels).catch(() => setOllamaModels([]));
+    }
+  }, [provider]);
+
+  const providerCatalog = catalog?.[provider];
+  let modelList = providerCatalog?.models || [];
+  if (provider === 'ollama' && ollamaModels.length > 0) {
+    const catalogIds = new Set(modelList.map((m) => m.id));
+    const extra = ollamaModels.filter((m) => !catalogIds.has(m.id)).map((m) => ({ id: m.id, name: m.name }));
+    modelList = [...modelList, ...extra];
+  }
+
+  const providers = catalog ? Object.keys(catalog) : ['ollama', 'anthropic', 'openai', 'google', 'deepseek'];
+
+  const handleApply = async () => {
+    setSaving(true);
+    await api?.updateSettings({ llmProvider: provider, llmModel: model });
+    setSaving(false);
+    onApply();
+  };
+
+  return (
+    <div className="absolute bottom-full right-0 mb-2 w-72 bg-surface-1 border border-surface-3 rounded-xl shadow-2xl animate-fade-in z-50 p-3 space-y-3">
+      <p className="text-xs font-medium text-zinc-300">Change Model</p>
+
+      {/* Provider */}
+      <div>
+        <label className="text-[10px] text-zinc-500 mb-1 block">Provider</label>
+        <div className="relative">
+          <select
+            value={provider}
+            onChange={(e) => {
+              setProvider(e.target.value);
+              const first = catalog?.[e.target.value]?.models?.[0]?.id;
+              if (first) setModel(first);
+            }}
+            className="w-full bg-surface-2 border border-surface-3 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 appearance-none pr-6 focus:outline-none focus:border-accent/40"
+          >
+            {providers.map((p) => (
+              <option key={p} value={p}>{catalog?.[p]?.label || p}</option>
+            ))}
+          </select>
+          <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+        </div>
+      </div>
+
+      {/* Model */}
+      <div>
+        <label className="text-[10px] text-zinc-500 mb-1 block">Model</label>
+        {modelList.length > 0 ? (
+          <div className="relative">
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="w-full bg-surface-2 border border-surface-3 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 appearance-none pr-6 focus:outline-none focus:border-accent/40"
+            >
+              {modelList.map((m) => (
+                <option key={m.id} value={m.id}>{m.name || m.id}</option>
+              ))}
+            </select>
+            <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+          </div>
+        ) : (
+          <input
+            type="text"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder="Model name"
+            className="w-full bg-surface-2 border border-surface-3 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-accent/40"
+          />
+        )}
+      </div>
+
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-2.5 py-1 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleApply}
+          disabled={saving || !model}
+          className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-accent/20 text-accent border border-accent/30 text-xs hover:bg-accent/30 transition-colors disabled:opacity-50"
+        >
+          {saving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+          Apply
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Connectors Popover ────────────────────────────────────────────────────────
+
+const CONNECTOR_SERVICES = [
+  { id: 'drive',    label: 'Google Drive',    icon: HardDrive, color: 'text-blue-400' },
+  { id: 'gmail',    label: 'Gmail',           icon: Mail,      color: 'text-red-400'  },
+  { id: 'calendar', label: 'Google Calendar', icon: Calendar,  color: 'text-green-400' },
+];
+
+function ConnectorsPopover({ onClose }) {
+  const [statuses, setStatuses] = useState({});
+  const [loading, setLoading]   = useState({});
+  const [errors, setErrors]     = useState({});
+
+  const refreshStatuses = useCallback(async () => {
+    const results = await Promise.all(
+      CONNECTOR_SERVICES.map(async (s) => [s.id, await api?.connectorStatus(s.id).catch(() => false)])
+    );
+    setStatuses(Object.fromEntries(results));
+  }, []);
+
+  useEffect(() => { refreshStatuses(); }, [refreshStatuses]);
+
+  const handleConnect = async (service) => {
+    setLoading((p) => ({ ...p, [service]: true }));
+    setErrors((p) => ({ ...p, [service]: null }));
+    try {
+      const result = await api?.connectorConnect(service);
+      if (result?.error) throw new Error(result.error);
+      await refreshStatuses();
+    } catch (err) {
+      setErrors((p) => ({ ...p, [service]: err.message }));
+    } finally {
+      setLoading((p) => ({ ...p, [service]: false }));
+    }
+  };
+
+  const handleDisconnect = async (service) => {
+    setLoading((p) => ({ ...p, [service]: true }));
+    try {
+      await api?.connectorDisconnect(service);
+      await refreshStatuses();
+    } catch { /* ignore */ } finally {
+      setLoading((p) => ({ ...p, [service]: false }));
+    }
+  };
+
+  return (
+    <div className="absolute bottom-full left-0 mb-2 w-72 bg-surface-1 border border-surface-3 rounded-xl shadow-2xl animate-fade-in z-50 p-3 space-y-2">
+      <p className="text-xs font-medium text-zinc-300 mb-2">Google Connectors</p>
+      {CONNECTOR_SERVICES.map(({ id, label, icon: Icon, color }) => {
+        const connected = statuses[id];
+        const isLoading = loading[id];
+        const err = errors[id];
+        return (
+          <div key={id} className={`flex items-center gap-2 px-2 py-2 rounded-lg border ${connected ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-surface-2 border-surface-3'}`}>
+            <Icon size={14} className={color} />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-zinc-300">{label}</p>
+              {err && <p className="text-[10px] text-red-400 truncate">{err}</p>}
+            </div>
+            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${connected ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+            <button
+              type="button"
+              onClick={() => connected ? handleDisconnect(id) : handleConnect(id)}
+              disabled={isLoading}
+              className={`text-[10px] px-2 py-0.5 rounded-md border transition-colors shrink-0 ${
+                connected
+                  ? 'text-zinc-500 border-surface-4 hover:text-red-400 hover:border-red-500/30'
+                  : 'text-accent border-accent/30 hover:bg-accent/10'
+              } disabled:opacity-50`}
+            >
+              {isLoading ? <Loader2 size={10} className="animate-spin" /> : connected ? 'Disconnect' : 'Connect'}
+            </button>
+          </div>
+        );
+      })}
+      <p className="text-[10px] text-zinc-600 pt-1">
+        Connect Google services to let the agent read Drive, Gmail, and Calendar.
+        Requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET env vars.
+      </p>
     </div>
   );
 }

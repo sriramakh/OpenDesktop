@@ -43,14 +43,15 @@ class AgentCore {
     this.sessionId = uuidv4();
 
     this.settings = {
-      llmProvider:     'ollama',
-      llmModel:        'llama3.2',
-      maxTurns:        50,
-      autoApproveRead: true,
+      llmProvider:      'ollama',
+      llmModel:         'llama3.2',
+      maxTurns:         50,
+      autoApproveRead:  true,
       autoApproveWrite: false,
-      defaultPersona:  'auto',
-      temperature:     0.7,
-      maxTokens:       8096,
+      defaultPersona:   'auto',
+      temperature:      0.7,
+      maxTokens:        8096,
+      workingDirectory: os.homedir(),
     };
 
     if (keyStore) {
@@ -131,7 +132,7 @@ class AgentCore {
   // Main entry point: handle a user message
   // ---------------------------------------------------------------------------
 
-  async handleUserMessage(message, personaName) {
+  async handleUserMessage(message, personaName, attachments) {
     this.cancelled = false;
     const taskId = uuidv4();
     this.currentTaskId = taskId;
@@ -146,11 +147,17 @@ class AgentCore {
     }
     const persona = this.personaManager.get(resolvedPersona);
 
+    // Build final user message content — append attachment hints if provided
+    let userContent = message;
+    if (attachments && attachments.length > 0) {
+      userContent += `\n\n[Attached files: ${attachments.join(', ')} — use fs_read or appropriate office tools to read them]`;
+    }
+
     // Add user message to session
-    this.sessionMessages.push({ role: 'user', content: message });
+    this.sessionMessages.push({ role: 'user', content: userContent });
 
     // Store in short-term memory
-    this.memory.addToShortTerm({ role: 'user', content: message, timestamp: Date.now() });
+    this.memory.addToShortTerm({ role: 'user', content: userContent, timestamp: Date.now() });
 
     try {
       // Gather live OS context
@@ -243,6 +250,7 @@ You have real tools that execute directly on this machine:
 - **Browser/UI**: browser_navigate, browser_click, browser_type, browser_key
 - **Web**: web_search, web_fetch, web_fetch_json, web_download
 - **AI**: llm_query, llm_summarize, llm_extract, llm_code
+- **Google connectors**: connector_drive_search, connector_drive_read, connector_gmail_search, connector_gmail_read, connector_calendar_events — require the user to connect via the connector button first
 - **MCP tools**: Any tools prefixed with \`mcp_\` come from connected MCP servers — use them as appropriate for specialized tasks
 
 ## Critical operating principles
@@ -250,12 +258,12 @@ You have real tools that execute directly on this machine:
 2. **Explore before acting** — When a path or app name is uncertain, search or list first. Never assume.
 3. **Chain tools intelligently** — Use the output of one tool as the exact input to the next.
 4. **Parallel when independent** — Call multiple tools in the same turn when they don't depend on each other.
-5. **Recover from errors** — If a tool fails, try an alternative approach. Adapt to what you discover.
+5. **Recover from errors** — If a tool fails, try an alternative approach. Adapt to what you discover. If fs_search returns no results, retry with a broader pattern or a parent directory.
 6. **Be complete** — If asked to organize files, actually move them. Don't stop at listing them.
 7. **Summarize clearly** — After completing a task, give a clear, concise summary of what was done.
 
 ## Tool guidelines
-- File paths: always use absolute paths. Desktop = \`${home}/Desktop\`, Downloads = \`${home}/Downloads\`
+- File paths: always use absolute paths. Working directory: \`${this.settings.workingDirectory}\` — default location for all file operations unless the user specifies otherwise.
 - Directory exploration: prefer \`fs_list\` or \`fs_tree\` over \`system_exec ls\`
 - Finding files: use \`fs_search\` with glob patterns (e.g. \`**/*.pdf\`, \`*.jpg\`)
 - **Organizing directories**: ALWAYS use \`fs_organize\` — it is atomic and correctly classifies ONLY files (not subdirectories) to avoid moving already-organized folders into "others". Never manually move folder-by-folder.
