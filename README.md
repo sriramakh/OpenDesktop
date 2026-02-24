@@ -36,15 +36,16 @@ Built with **Electron + React + Node.js** — everything runs locally on your ma
 │  ┌──────────┴──────────┐  ┌──────────┴────────────────┐ │
 │  │   Tool Registry      │  │    Memory System          │ │
 │  │  • Filesystem (11)   │  │  • Short-term (100 msg)   │ │
-│  │  • Office (15)       │  │  • Long-term (SQLite FTS) │ │
+│  │  • Office (21)       │  │  • Long-term (SQLite FTS) │ │
 │  │  • App Control (6)   │  │  • Full-text search       │ │
 │  │  • Browser (5)       │  │  • JSON fallback          │ │
 │  │  • Browser Tabs (9)  │  ├──────────────────────────┤ │
 │  │  • Search/Fetch (4)  │  │  Permission Manager       │ │
-│  │  • System (6)        │  │  safe / sensitive / danger │ │
+│  │  • Content (1)       │  │  safe / sensitive / danger │ │
+│  │  • System (6)        │  │                          │ │
 │  │  • LLM (4)           │  │                          │ │
 │  │  • Connectors (5)    │  │                          │ │
-│  │  Total: 65 tools     │  └──────────────────────────┘ │
+│  │  Total: 72 tools     │  └──────────────────────────┘ │
 │  └──────────────────────┘                                │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -109,22 +110,23 @@ Choose from **10 providers** and **80+ models** directly in the Settings UI:
 - **Encrypted API key storage** — AES-256-GCM encryption with machine-specific key derivation (PBKDF2, 100K iterations)
 - Keys are stored in `~/.config/open-desktop/.keystore.enc`, never in plaintext
 
-### Unified Tool System (65 tools)
+### Unified Tool System (72 tools)
 
 All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native function calling with every LLM provider.
 
 | Category | Tools | Count | Permission |
 |----------|-------|:-----:|------------|
 | **Filesystem** | `fs_read`, `fs_write`, `fs_edit`, `fs_list`, `fs_search`, `fs_delete`, `fs_move`, `fs_mkdir`, `fs_tree`, `fs_info`, `fs_organize` | 11 | Safe/Sensitive/Dangerous |
-| **Office Documents** | `office_read_pdf`, `office_pdf_search`, `office_pdf_ask`, `office_search_pdfs`, `office_read_docx`, `office_search_docx`, `office_search_docxs`, `office_write_docx`, `office_read_xlsx`, `office_write_xlsx`, `office_chart_xlsx`, `office_read_pptx`, `office_write_pptx`, `office_read_csv`, `office_write_csv` | 15 | Safe/Sensitive |
+| **Office Documents** | `office_read_pdf`, `office_pdf_search`, `office_pdf_ask`, `office_search_pdfs`, `office_read_docx`, `office_search_docx`, `office_search_docxs`, `office_write_docx`, `office_analyze_xlsx`, `office_read_xlsx`, `office_write_xlsx`, `office_chart_xlsx`, `office_dashboard_xlsx`, `office_python_dashboard`, `office_validate_dashboard`, `excel_vba_run`, `excel_vba_list`, `office_read_pptx`, `office_write_pptx`, `office_read_csv`, `office_write_csv` | 21 | Safe/Sensitive |
 | **Google Connectors** | `connector_drive_search`, `connector_drive_read`, `connector_gmail_search`, `connector_gmail_read`, `connector_calendar_events` | 5 | Safe |
 | **App Control** | `app_open`, `app_find`, `app_list`, `app_focus`, `app_quit`, `app_screenshot` | 6 | Safe/Sensitive |
 | **Browser** | `browser_navigate`, `browser_click`, `browser_type`, `browser_key`, `browser_submit_form` | 5 | Sensitive/Dangerous |
 | **Browser Tabs** | `tabs_list`, `tabs_navigate`, `tabs_close`, `tabs_read`, `tabs_focus`, `tabs_find_duplicates`, `tabs_find_forms`, `tabs_fill_form`, `tabs_run_js` | 9 | Safe/Sensitive/Dangerous |
 | **Search/Fetch** | `web_search`, `web_fetch`, `web_fetch_json`, `web_download` | 4 | Safe/Sensitive |
+| **Content Tools** | `content_summarize` | 1 | Safe |
 | **System** | `system_exec`, `system_info`, `system_processes`, `system_clipboard_read`, `system_clipboard_write`, `system_notify` | 6 | Safe/Sensitive |
 | **LLM** | `llm_query`, `llm_summarize`, `llm_extract`, `llm_code` | 4 | Safe |
-| **Total** | | **65** | |
+| **Total** | | **72** | |
 
 #### Key tool capabilities
 
@@ -146,9 +148,12 @@ All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native f
 - **Google Connectors** — securely authenticate to read Google Drive files, search Gmail, and fetch Calendar events.
 - **Browser Tabs Toolkit** — list/focus/read tabs, navigate existing browser sessions with `tabs_navigate`, detect duplicates, fill forms, and run page JavaScript across Chrome/Safari/Firefox/Brave/Edge/Arc.
 - **File Attachments** — click the paperclip icon in the UI to attach files directly to your prompt.
+- **`office_analyze_xlsx`** — Deep multi-sheet analysis: headers, data types, statistics, samples, and cross-sheet formula references
 - **`office_read_xlsx`** — Excel read via SheetJS with `summaryOnly` mode, merged cells/column widths metadata, row×col dimensions
 - **`office_write_xlsx`** — Excel write via ExcelJS with full formatting, 12 operation types (`set_cell`, `format_range`, `freeze_panes`, `merge_cells`, `create_table`, `auto_fit_columns`, etc.), financial color coding, and `autoFormat` mode
-- **`office_chart_xlsx`** — Dynamic pivot/summary tables using SUMIF/COUNTIF/AVERAGEIF formulas that auto-recalculate when source data changes
+- **Excel Dashboards** — Build professional dashboards via `office_dashboard_xlsx` (native) or `office_python_dashboard` (pandas+openpyxl), validate against gold standards with `office_validate_dashboard`, and embed charts with `office_chart_xlsx`
+- **Excel VBA** — Run macros directly from the agent via `excel_vba_run` and discover them with `excel_vba_list`
+- **`content_summarize`** — Auto-detects and summarizes web articles, YouTube videos, podcast feeds, and local audio/video files using Whisper transcription (requires `@steipete/summarize` CLI)
 - **`office_read_pptx`** — PowerPoint slide extraction (titles, body text, speaker notes) via JSZip XML parsing
 - **`office_write_pptx`** — PowerPoint creation via pptxgenjs with 4 built-in themes (professional/dark/minimal/vibrant), 5 slide layouts (title/content/two-column/table/section), template color extraction, and OOXML post-processing fix
 - **`office_read_csv`** / **`office_write_csv`** — CSV/TSV with auto-delimiter detection, pagination, and JSON output
@@ -274,14 +279,15 @@ OpenDesktop/
 │   │       ├── context.js       # OS context awareness
 │   │       └── tools/
 │   │           ├── registry.js      # Tool registration + provider-specific schema generation
-│   │           ├── tool-schemas.js  # JSON Schema definitions for all 65 tools
+│   │           ├── tool-schemas.js  # JSON Schema definitions for all 72 tools
 │   │           ├── filesystem.js    # 11 file ops (read, write, move, organize, tree, etc.)
-│   │           ├── office.js        # 15 office document ops (PDF, DOCX, XLSX, PPTX, CSV)
+│   │           ├── office.js        # 21 office document ops (PDF, DOCX, XLSX, PPTX, CSV, Dashboards, VBA)
 │   │           ├── connectors.js    # 5 Google Workspace integration ops (Drive, Gmail, Calendar)
 │   │           ├── app-control.js   # 6 app ops (open with fuzzy match, find, list, etc.)
 │   │           ├── browser.js       # 5 browser/UI automation ops
 │   │           ├── browser-tabs.js  # 9 browser tab management ops
 │   │           ├── search-fetch.js  # 4 web ops
+│   │           ├── content-tools.js # 1 content summarization op (audio/video/web)
 │   │           ├── system.js        # 6 system ops
 │   │           └── llm-tools.js     # 4 LLM ops
 │   └── renderer/                # React UI

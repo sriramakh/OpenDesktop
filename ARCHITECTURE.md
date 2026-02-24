@@ -57,10 +57,11 @@ OpenDesktop is a **local-first autonomous AI agent** that runs natively on macOS
 │  │              │    └── KeyStore (AES-256-GCM)                │  │
 │  │              └── PermissionManager (safe/sensitive/danger)  │  │
 │  │                                                            │  │
-│  │  ┌─── Tool Registry (65 tools) ────────────────────────┐  │  │
-│  │  │ Filesystem(11) │ Office(15) │ AppControl(6)         │  │  │
+│  │  ┌─── Tool Registry (72 tools) ────────────────────────┐  │  │
+│  │  │ Filesystem(11) │ Office(21) │ AppControl(6)         │  │  │
 │  │  │ Browser(5)     │ BrowserTabs(9) │ Search(4)         │  │  │
 │  │  │ System(6)      │ LLM(4)      │ Connectors(5)        │  │  │
+│  │  │ Content(1)                                          │  │  │
 │  │  └─────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
@@ -109,7 +110,7 @@ app.whenReady()
       → new AgentCore({ memory, permissions, context, toolRegistry, keyStore, emit })
       → memory.initialize()                // Create/open SQLite DB
       → keyStore.initialize()              // Decrypt .keystore.enc
-      → toolRegistry.registerBuiltinTools() // Load all 65 tools
+      → toolRegistry.registerBuiltinTools() // Load all 72 tools
   → createWindow()                          // BrowserWindow with vibrancy
   → setupIPC()                              // Register all IPC handlers
 ```
@@ -438,7 +439,7 @@ Other: `strings` command fallback
 **File organization categories (EXT_CATEGORIES):**
 Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, Applications, Fonts — covering 80+ extensions.
 
-#### Office Documents (15 tools) — `office.js`
+#### Office Documents (21 tools) — `office.js`
 
 | Tool | Permission | Description |
 |------|-----------|-------------|
@@ -450,9 +451,15 @@ Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, A
 | `office_search_docx` | safe | Search for a specific term or phrase inside a single Word document (.docx). Returns matching paragraphs with surrounding context and section heading. |
 | `office_search_docxs` | safe | Search for a term or phrase across ALL Word documents (.docx) in a directory. Runs in one Python process. |
 | `office_write_docx` | sensitive | Create/update DOCX from markdown-like content (headings, bullets, numbered lists, bold, italic, tables) via Office Open XML. |
+| `office_analyze_xlsx` | safe | Deep multi-sheet analysis: headers, data types, statistics, samples, cross-sheet references. Use this FIRST before charting or dashboarding. |
 | `office_read_xlsx` | safe | Excel read via SheetJS — summaryOnly mode, merged cells/column widths metadata, row×col dimensions |
-| `office_write_xlsx` | sensitive | Excel write via ExcelJS — full formatting, 12 operation types, financial color coding, autoFormat mode |
-| `office_chart_xlsx` | sensitive | Dynamic pivot/summary tables using SUMIF/COUNTIF/AVERAGEIF formulas (auto-recalculate) |
+| `office_write_xlsx` | sensitive | Excel write via ExcelJS — full formatting, 12 operation types, financial color coding, autoFormat mode, auto-detects formula values |
+| `office_chart_xlsx` | sensitive | Embed real Excel chart objects (bar, column, line, pie, area, scatter) into a workbook using python openpyxl. |
+| `office_dashboard_xlsx` | sensitive | Create an executive dashboard sheet with KPI metric cards and embedded charts using native Python templating. |
+| `office_python_dashboard` | sensitive | Build a comprehensive Excel dashboard from Excel/CSV using a custom Python script (pandas+openpyxl) executed by the agent. |
+| `office_validate_dashboard`| safe | Validate a built Excel dashboard against 25 Gold Standard criteria (formulas, structure, charts). Returns pass/fail score. |
+| `excel_vba_run` | sensitive | Run an existing named VBA macro in an Excel workbook via AppleScript + xlwings. |
+| `excel_vba_list` | safe | List all VBA modules and public macros in an Excel workbook. |
 | `office_read_pptx` | safe | PowerPoint extraction via JSZip (titles, body, speaker notes) |
 | `office_write_pptx` | write | PowerPoint creation via pptxgenjs — 4 themes, 5 slide layouts, template color extraction, OOXML post-fix |
 | `office_read_csv` | safe | CSV/TSV with auto-delimiter detection, pagination, JSON output |
@@ -548,6 +555,12 @@ Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, A
 | `web_fetch` | safe | Fetch webpage content as text |
 | `web_fetch_json` | safe | Fetch JSON API endpoint |
 | `web_download` | sensitive | Download file to disk |
+
+#### Content Tools (1 tool) — `content-tools.js`
+
+| Tool | Permission | Description |
+|------|-----------|-------------|
+| `content_summarize` | safe | Summarize any content: web articles, YouTube videos, podcast feeds, or local audio/video files (MP3/MP4) using Whisper transcription. |
 
 #### System (6 tools) — `system.js`
 
@@ -938,14 +951,15 @@ OpenDesktop/
 │       │
 │       └── tools/                  # ═══ TOOL IMPLEMENTATIONS ═══
 │           ├── registry.js         # ToolRegistry: registration + provider-specific schemas
-│           ├── tool-schemas.js     # JSON Schema definitions for all 65 tools
+│           ├── tool-schemas.js     # JSON Schema definitions for all 72 tools
 │           ├── filesystem.js       # 11 tools: read, write, edit, list, search, move, organize...
-│           ├── office.js           # 15 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), PPTX (pptxgenjs), CSV
+│           ├── office.js           # 21 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), Dashboards, VBA, PPTX (pptxgenjs), CSV
 │           ├── connectors.js       # 5 tools: Google Drive, Gmail, Calendar integration
 │           ├── app-control.js      # 6 tools: open (fuzzy), find, list, focus, quit, screenshot
 │           ├── browser.js          # 5 tools: navigate, click, type, key, submit_form
 │           ├── browser-tabs.js     # 9 tools: browser tab listing/navigation, cleanup, reading, forms, and JS
 │           ├── search-fetch.js     # 4 tools: web_search, web_fetch, web_fetch_json, web_download
+│           ├── content-tools.js    # 1 tool: summarize web articles, audio, video
 │           ├── system.js           # 6 tools: exec, info, processes, clipboard, notify
 │           └── llm-tools.js        # 4 tools: query, summarize, extract, code
 │
