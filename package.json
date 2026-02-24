@@ -7,7 +7,8 @@
     "start": "electron .",
     "dev": "concurrently \"npm run dev:renderer\" \"wait-on http://localhost:5173 && electron .\"",
     "dev:renderer": "vite --config vite.config.js",
-    "build": "vite build --config vite.config.js && electron-builder",
+    "setup-python": "node scripts/setup-python.js",
+    "build": "node scripts/setup-python.js && vite build --config vite.config.js && electron-builder",
     "lint": "eslint src/"
   },
   "keywords": [
@@ -27,6 +28,7 @@
     "electron-builder": "^24.9.1",
     "postcss": "^8.4.33",
     "tailwindcss": "^3.4.1",
+    "tar": "^6.2.1",
     "vite": "^5.0.12",
     "wait-on": "^7.2.0"
   },

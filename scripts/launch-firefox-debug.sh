@@ -7,6 +7,9 @@
 #
 # Port 9223 is used (instead of 9222) to avoid conflicts with Chrome's debug port.
 #
+# NOTE: Firefox has a single-instance restriction. This script closes any existing
+# Firefox window and reopens it with debugging enabled.
+#
 # Usage:
 #   bash scripts/launch-firefox-debug.sh
 #   bash scripts/launch-firefox-debug.sh https://example.com   # open a URL
@@ -19,10 +22,26 @@ if [ ! -f "$FIREFOX" ]; then
   exit 1
 fi
 
+# If Firefox debug port is already active, reuse it
+if curl -s --connect-timeout 1 http://localhost:9223/json/version >/dev/null 2>&1; then
+  echo "Firefox debug port 9223 is already active."
+  echo "OpenDesktop can already connect to it."
+  exit 0
+fi
+
+# Close any existing Firefox (required — Firefox single-instance mode won't
+# open a new process with different flags while one is already running)
+if pgrep -x "firefox" > /dev/null 2>&1; then
+  echo "Closing existing Firefox to restart with remote debugging..."
+  osascript -e 'tell application "Firefox" to quit' 2>/dev/null || \
+    pkill -x "firefox" 2>/dev/null
+  sleep 3
+fi
+
 echo "Starting Firefox with remote debugging on port 9223..."
-echo "OpenDesktop can now access Firefox tabs."
+echo "OpenDesktop will be able to list tabs, read content, fill forms, and run JavaScript."
 echo ""
-echo "To verify: curl http://localhost:9223/json/version"
+echo "To verify after start: curl http://localhost:9223/json/version"
 echo ""
 
 exec "$FIREFOX" --remote-debugging-port=9223 "$@"

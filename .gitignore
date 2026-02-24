@@ -1,5 +1,6 @@
 node_modules/
 dist/
+resources/python/
 .DS_Store
 *.log
 .env

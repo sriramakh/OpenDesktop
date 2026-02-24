@@ -1,0 +1,29 @@
+{
+  "appId": "com.opendesktop.app",
+  "productName": "OpenDesktop",
+  "files": [
+    "src/main/**/*",
+    "dist/renderer/**/*",
+    "assets/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    { "from": "resources/python", "to": "python", "filter": ["**/*"] }
+  ],
+  "asar": true,
+  "asarUnpack": ["resources/python/**/*"],
+  "mac": {
+    "category": "public.app-category.productivity",
+    "target": [
+      { "target": "dmg" },
+      { "target": "zip" }
+    ],
+    "hardenedRuntime": false
+  },
+  "win": {
+    "target": [{ "target": "nsis" }]
+  },
+  "linux": {
+    "target": [{ "target": "AppImage" }]
+  }
+}

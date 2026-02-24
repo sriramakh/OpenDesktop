@@ -1,3 +1,6 @@
+// Load .env from project root before any other imports
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
+
 const { app, BrowserWindow, ipcMain, screen, dialog } = require('electron');
 const path = require('path');
 const { AgentCore }        = require('./agent/core');

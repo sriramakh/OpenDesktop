@@ -457,6 +457,43 @@ const TOOL_SCHEMAS = {
   },
 
   // ---------------------------------------------------------------------------
+  // Content summarization
+  // ---------------------------------------------------------------------------
+  content_summarize: {
+    description:
+      'Summarize any content: web articles, YouTube videos, podcast feeds, local audio/video files (MP3, MP4, WAV, M4A), PDFs, or text files. Powered by the summarize CLI which auto-detects input type and handles Whisper transcription for audio/video. Use instead of web_fetch+llm_summarize for: YouTube links, podcast URLs, audio/video files, and any URL that needs intelligent extraction. Requires summarize CLI: npm install -g @steipete/summarize',
+    properties: {
+      input: {
+        type: 'string',
+        description:
+          'URL (web page, YouTube, podcast RSS/Apple Podcasts/Spotify) or absolute file path (MP3, MP4, WAV, M4A, PDF, TXT). Examples: "https://youtu.be/dQw4w9WgXcQ", "https://example.com/article", "/Users/alice/podcast.mp3"',
+      },
+      length: {
+        type: 'string',
+        enum: ['short', 'medium', 'long', 'xl', 'xxl'],
+        description:
+          'Summary length. short ~900 chars, medium ~1800 chars (default), long ~4200 chars, xl ~9000 chars, xxl ~17000 chars. Use "xl" or "xxl" when the user wants a detailed summary or near-full transcript.',
+      },
+      language: {
+        type: 'string',
+        description:
+          'Output language code (e.g. "en", "de", "fr", "es", "ja"). Defaults to English. Pass the user\'s preferred language here.',
+      },
+      extract: {
+        type: 'boolean',
+        description:
+          'If true, return raw extracted content without summarizing. Use to get the full transcript of a video/podcast, full article text, or raw PDF content.',
+      },
+      slides: {
+        type: 'boolean',
+        description:
+          'For YouTube videos and slide-heavy presentations: extract key screenshots with timestamps. Useful when the user wants visual slide content from a presentation video.',
+      },
+    },
+    required: ['input'],
+  },
+
+  // ---------------------------------------------------------------------------
   // Web search & fetch
   // ---------------------------------------------------------------------------
   web_search: {
@@ -857,6 +894,15 @@ Use this for: "find which contracts mention X", "search my reports folder for a 
     required: ['directory', 'query'],
   },
 
+  office_analyze_xlsx: {
+    description: 'Deep analysis of ALL sheets in an Excel workbook. Returns headers, data types, statistics (sum/avg/min/max/unique), sample rows, and cross-sheet references. Use this FIRST before any other Excel operation to fully understand the data.',
+    properties: {
+      path:       { type: 'string', description: 'Absolute path to the Excel file.' },
+      sampleRows: { type: 'number', description: 'Sample rows to show per sheet. Default: 5.', default: 5 },
+    },
+    required: ['path'],
+  },
+
   office_read_xlsx: {
     description: 'Read an Excel workbook (.xlsx/.xls). Returns sheet data, formulas, merged cells, column widths. Use summaryOnly=true for a fast overview of large files (headers + row count only).',
     properties: {
@@ -894,22 +940,127 @@ Use this for: "find which contracts mention X", "search my reports folder for a 
   },
 
   office_chart_xlsx: {
-    description: 'Build a dynamic pivot/summary table in an Excel workbook. Uses SUMIF/COUNTIF/AVERAGEIF/MAXIFS/MINIFS formulas so the summary auto-recalculates when source data changes. Writes a professionally styled sheet. To create a chart: open in Excel, select the summary data, and Insert → Chart.',
+    description: 'Embed real Excel chart objects (bar, column, line, pie, area, scatter) into a workbook. Each chart reads from a data range where the first column = categories/x-axis and remaining columns = data series. Supports multiple charts per call with auto-positioning. Always call office_analyze_xlsx first to get the correct sheet names and data ranges.',
     properties: {
-      path: { type: 'string', description: 'Absolute path to the Excel file.' },
-      dataSheet: { type: 'string', description: 'Source sheet name. Defaults to first sheet.' },
-      dataRange: { type: 'string', description: "Optional range to limit source rows (e.g. 'A1:F500'). Defaults to all rows." },
-      outputSheet: { type: 'string', description: "Sheet name for the pivot output. Default: 'Summary'." },
-      title: { type: 'string', description: 'Title for the summary table.' },
-      pivotConfig: {
-        type: 'object',
-        description: 'Pivot configuration (all fields are 1-indexed column numbers).',
-        properties: {
-          groupByCol:  { type: 'number', description: 'Column number to group by (1-indexed). Default: 1.' },
-          valueCol:    { type: 'number', description: 'Column number to aggregate (1-indexed). Default: 2.' },
-          aggregation: { type: 'string', description: "Aggregation: 'SUM' (default), 'COUNT', 'AVG', 'MAX', 'MIN'.", enum: ['SUM', 'COUNT', 'AVG', 'MAX', 'MIN'] },
-          labelCol:    { type: 'number', description: 'Optional column for a third label column in the output.' },
+      path:   { type: 'string', description: 'Absolute path to the Excel file.' },
+      charts: {
+        type: 'array',
+        description: 'Array of chart definitions. Each chart specifies its own data source and target sheet.',
+        items: {
+          type: 'object',
+          properties: {
+            type:        { type: 'string', description: "Chart type: 'column' (default), 'bar', 'line', 'pie', 'area', 'scatter', 'stacked_column', 'stacked_bar'." },
+            title:       { type: 'string', description: 'Chart title shown above the chart.' },
+            dataSheet:   { type: 'string', description: 'Sheet containing the source data.' },
+            dataRange:   { type: 'string', description: "Cell range with headers in row 1, e.g. 'A1:C13'. First column = categories, rest = data series." },
+            targetSheet: { type: 'string', description: "Sheet where the chart is inserted. Default: 'Charts'. Created if it doesn't exist." },
+            anchor:      { type: 'string', description: "Top-left cell for chart placement, e.g. 'A1'. Auto-assigned if omitted." },
+            xTitle:      { type: 'string', description: 'X-axis label.' },
+            yTitle:      { type: 'string', description: 'Y-axis label.' },
+            width:       { type: 'number', description: 'Chart width in cm. Default: 15.' },
+            height:      { type: 'number', description: 'Chart height in cm. Default: 10.' },
+          },
         },
+      },
+    },
+    required: ['path', 'charts'],
+  },
+
+  office_dashboard_xlsx: {
+    description: 'Create a complete executive dashboard sheet in a workbook. Combines KPI metric cards (with value, trend arrow, change %) and embedded charts (up to 4) into a professionally styled sheet. Perfect for executive summaries and data presentations. Call office_analyze_xlsx first to get the data layout.',
+    properties: {
+      path:        { type: 'string', description: 'Absolute path to the Excel file (created if missing).' },
+      title:       { type: 'string', description: 'Dashboard title shown at the top. Default: "Dashboard".' },
+      outputSheet: { type: 'string', description: 'Name of the dashboard sheet. Default: "Dashboard".' },
+      summaryText: { type: 'string', description: 'Optional narrative/executive summary text displayed below the charts.' },
+      kpis: {
+        type: 'array',
+        description: 'Up to 4 KPI metric cards shown prominently at the top.',
+        items: {
+          type: 'object',
+          properties: {
+            label:    { type: 'string', description: 'Metric name, e.g. "Total Revenue".' },
+            value:    { type: 'string', description: 'Primary value, e.g. "$2.4M" or "12,450".' },
+            change:   { type: 'string', description: 'Change vs prior period, e.g. "+15%" or "-3%".' },
+            trend:    { type: 'string', description: '"up", "down", or "neutral". Controls arrow direction.' },
+            subtitle: { type: 'string', description: 'Small subtitle text, e.g. "vs last quarter".' },
+          },
+        },
+      },
+      charts: {
+        type: 'array',
+        description: 'Up to 4 charts embedded in the dashboard body.',
+        items: {
+          type: 'object',
+          properties: {
+            type:      { type: 'string', description: "Chart type: 'column', 'line', 'pie', 'area', 'bar'." },
+            title:     { type: 'string', description: 'Chart title.' },
+            dataSheet: { type: 'string', description: 'Sheet with source data.' },
+            dataRange: { type: 'string', description: "Data range, e.g. 'A1:B13'. First col = categories." },
+            width:     { type: 'number', description: 'Width in cm. Default: 14.' },
+            height:    { type: 'number', description: 'Height in cm. Default: 10.' },
+          },
+        },
+      },
+    },
+    required: ['path'],
+  },
+
+  office_python_dashboard: {
+    description: 'Build a comprehensive professionally styled Excel dashboard (.xlsx) from any Excel or CSV file using Python (pandas + openpyxl). ALWAYS follow the skill guide workflow: (1) call office_read_xlsx or office_read_csv to analyze the data, (2) read the skill guide with fs_read on excel-dashboard.md in the skills folder, (3) design the dashboard (KPIs, charts, analysis sheets), (4) write the complete pythonScript following the template, (5) call this tool. The tool pre-injects SOURCE, OUTPUT, RESULT_PATH, write_result() — do NOT redefine them. The script must end with write_result({ok: true, sheets: [...], summary: "..."}).',
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Absolute path to the source Excel (.xlsx, .xls) or CSV file to build the dashboard from.',
+      },
+      pythonScript: {
+        type: 'string',
+        description: 'Complete Python script following the skill guide template. Uses pandas + openpyxl. Do NOT redefine SOURCE, OUTPUT, RESULT_PATH, or write_result() — they are pre-injected by the tool. Script must end by calling write_result({"ok": true, "sheets": [...], "summary": "..."}).',
+      },
+      outputPath: {
+        type: 'string',
+        description: 'Absolute path for the output .xlsx dashboard file. Default: same directory as source with "_Dashboard.xlsx" suffix.',
+      },
+    },
+    required: ['path', 'pythonScript'],
+  },
+
+  office_validate_dashboard: {
+    description: 'Validate a built Excel dashboard against Gold Standard criteria. Runs 25 checks across structure, KPI formulas, chart references, analysis sheet formulas, and data integrity. Returns a score report with specific pass/fail details for each check. Use immediately after office_python_dashboard to catch issues before reporting to the user.',
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Absolute path to the dashboard .xlsx file to validate.',
+      },
+      sourcePath: {
+        type: 'string',
+        description: 'Optional: absolute path to the source CSV/XLSX. Used to cross-validate formula column references.',
+      },
+    },
+    required: ['path'],
+  },
+
+  excel_vba_run: {
+    description: 'Run a named VBA macro in an existing Excel workbook (.xlsm) without re-injecting VBA code. Use to refresh a dashboard after data updates or to execute any existing macro by name.',
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Absolute path to the .xlsm workbook.',
+      },
+      macroName: {
+        type: 'string',
+        description: 'Fully-qualified macro name. For a module named OD_Dashboard with sub BuildDashboard, use "OD_Dashboard.BuildDashboard". Or just "BuildDashboard" if unambiguous.',
+      },
+    },
+    required: ['path', 'macroName'],
+  },
+
+  excel_vba_list: {
+    description: 'List all VBA modules and public Sub/Function names in an Excel workbook. Use to discover existing macros before calling excel_vba_run.',
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Absolute path to the .xlsm (or .xlsx) workbook to inspect.',
       },
     },
     required: ['path'],
@@ -1190,6 +1341,35 @@ MANDATORY QUALITY RULES — violating any of these produces a bad presentation:
       },
     },
     required: [],
+  },
+
+  tabs_navigate: {
+    description: 'Navigate an existing browser tab to a URL, or open a new tab in a currently running browser. Use this instead of browser_navigate, app_open, or system_exec open when the user wants to work with their existing Chrome/Safari/Firefox session — it does NOT open a new browser window.',
+    properties: {
+      browser: {
+        type: 'string',
+        enum: ['chrome', 'safari', 'firefox', 'brave', 'edge', 'arc', 'opera'],
+        description: 'Which browser to navigate.',
+      },
+      url: {
+        type: 'string',
+        description: 'URL to navigate to. If no protocol is specified, https:// is assumed.',
+      },
+      windowIndex: {
+        type: 'number',
+        description: 'Window number from tabs_list. Omit (or set newTab=true) to open a new tab.',
+      },
+      tabIndex: {
+        type: 'number',
+        description: 'Tab number from tabs_list. Omit (or set newTab=true) to open a new tab.',
+      },
+      newTab: {
+        type: 'boolean',
+        description: 'If true, open a new tab in the existing browser window instead of navigating the current tab. Default: false.',
+        default: false,
+      },
+    },
+    required: ['browser', 'url'],
   },
 
   tabs_close: {

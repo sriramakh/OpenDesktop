@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronRight, Wrench, Bot, Sparkles,
   Terminal, Globe, FolderOpen, Cpu, RefreshCw, Eye,
   Paperclip, X as XIcon, Plug, HardDrive, Check,
-  Calendar, Mail,
+  Calendar, Mail, Layers,
 } from 'lucide-react';
 
 const api = window.api;
@@ -229,8 +229,11 @@ export default function ChatPanel({ messages, isProcessing, phaseLabel, onSend, 
               type="button"
               onClick={() => { setShowModelPicker(!showModelPicker); setShowConnectors(false); }}
               className="text-[10px] text-zinc-500 hover:text-zinc-300 flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-surface-3 transition-colors"
-              title="Click to change model"
+              title="Click to change model / mode"
             >
+              {settings?.agentMode === 'fast'
+                ? <Zap size={10} className="text-amber-400" />
+                : <Layers size={10} className="text-violet-400" />}
               <Cpu size={10} />
               {settings?.llmProvider || 'ollama'}/{settings?.llmModel || '...'}
               <ChevronDown size={9} className="opacity-60" />
@@ -259,6 +262,7 @@ function ModelPickerPopover({ settings, onApply, onClose }) {
   const [ollamaModels, setOllamaModels] = useState([]);
   const [provider, setProvider]       = useState(settings?.llmProvider || 'ollama');
   const [model, setModel]             = useState(settings?.llmModel || '');
+  const [mode, setMode]               = useState(settings?.agentMode || 'comprehensive');
   const [saving, setSaving]           = useState(false);
 
   useEffect(() => {
@@ -283,7 +287,7 @@ function ModelPickerPopover({ settings, onApply, onClose }) {
 
   const handleApply = async () => {
     setSaving(true);
-    await api?.updateSettings({ llmProvider: provider, llmModel: model });
+    await api?.updateSettings({ llmProvider: provider, llmModel: model, agentMode: mode });
     setSaving(false);
     onApply();
   };
@@ -338,6 +342,32 @@ function ModelPickerPopover({ settings, onApply, onClose }) {
             className="w-full bg-surface-2 border border-surface-3 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-accent/40"
           />
         )}
+      </div>
+
+      {/* Mode */}
+      <div>
+        <label className="text-[10px] text-zinc-500 mb-1.5 block">Mode</label>
+        <div className="grid grid-cols-2 gap-1.5">
+          {[
+            { value: 'fast',          label: 'Fast',          Icon: Zap,    desc: '15 turns · concise',  color: 'text-amber-400'  },
+            { value: 'comprehensive', label: 'Comprehensive', Icon: Layers, desc: '50 turns · thorough', color: 'text-violet-400' },
+          ].map(({ value, label, Icon, desc, color }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setMode(value)}
+              className={`flex flex-col items-center gap-0.5 px-2 py-2 rounded-lg border text-xs transition-colors ${
+                mode === value
+                  ? 'border-accent/50 bg-accent/10 text-zinc-200'
+                  : 'border-surface-3 bg-surface-2 text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <Icon size={13} className={mode === value ? color : ''} />
+              <span className="font-medium">{label}</span>
+              <span className="text-[9px] opacity-60">{desc}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex items-center justify-end gap-2 pt-1">

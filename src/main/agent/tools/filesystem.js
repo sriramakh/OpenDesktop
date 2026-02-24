@@ -3,6 +3,7 @@ const fsp = require('fs/promises');
 const path = require('path');
 const { glob } = require('glob');
 const { exec } = require('child_process');
+const { getPythonPath } = require('../../python-runtime');
 
 // pdfjs-dist (used by pdf-parse v2) expects browser globals — polyfill for Node.js
 if (typeof globalThis.DOMMatrix === 'undefined') {
@@ -146,7 +147,7 @@ print(json.dumps({'pages': results, 'total': total_pages}))
   const scriptPath = path.join(require('os').tmpdir(), `_ocr_pdf_${Date.now()}.py`);
   await fsp.writeFile(scriptPath, script, 'utf-8');
   try {
-    const output = await shellExec(`python3 "${scriptPath}" "${filePath}" 15`, 120000);
+    const output = await shellExec(`"${getPythonPath()}" "${scriptPath}" "${filePath}" 15`, 120000);
     const result = JSON.parse(output.trim());
     if (result.error) throw new Error(result.error);
 
