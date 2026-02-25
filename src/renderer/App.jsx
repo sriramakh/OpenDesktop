@@ -230,7 +230,24 @@ export default function App() {
       }),
     ];
 
-    return () => cleanups.forEach((c) => c());
+    // Reminder fired — inject a system message into the chat
+    const reminderCleanup = api.onReminderFired?.
+      (({ message, firedAt }) => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role:      'reminder',
+            content:   message,
+            timestamp: firedAt || Date.now(),
+            completed: true,
+          },
+        ]);
+      });
+
+    return () => {
+      cleanups.forEach((c) => c());
+      if (typeof reminderCleanup === 'function') reminderCleanup();
+    };
   }, []);
 
   // ── Send a message ───────────────────────────────────────────────────────────

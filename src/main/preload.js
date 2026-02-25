@@ -138,6 +138,13 @@ contextBridge.exposeInMainWorld('api', {
   removeMCPServer:    (id)     => ipcRenderer.invoke('mcp:remove-server', { id }),
   reconnectMCPServer: (id)     => ipcRenderer.invoke('mcp:reconnect-server', { id }),
 
+  // ── Reminders ──────────────────────────────────────────────────────────────
+  onReminderFired: (cb) => {
+    const handler = (_e, d) => cb(d);
+    ipcRenderer.on('reminder:fired', handler);
+    return () => ipcRenderer.removeListener('reminder:fired', handler);
+  },
+
   // ── Window ─────────────────────────────────────────────────────────────────
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),

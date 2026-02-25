@@ -21,11 +21,12 @@ const { v4: uuidv4 } = require('uuid');
 const { TOOL_SCHEMAS } = require('./tools/tool-schemas');
 
 class AgentLoop {
-  constructor({ toolRegistry, llm, permissions, emit }) {
+  constructor({ toolRegistry, llm, permissions, emit, summarizer }) {
     this.toolRegistry = toolRegistry;
     this.llm = llm;
     this.permissions = permissions;
     this.emit = emit;
+    this.summarizer = summarizer || null;
     this.cancelled = false;
     this.pendingApprovals = new Map();
   }
@@ -62,6 +63,11 @@ class AgentLoop {
 
     let turns = 0;
     let accumulatedText = '';
+
+    // Task state tracking
+    const taskState = { filesModified: [], toolOutputsSummary: [], completedSteps: [] };
+    const consecutiveFailures = new Map();
+    const FILE_WRITE_TOOLS = new Set(['fs_write', 'fs_edit', 'fs_delete', 'fs_move', 'fs_mkdir', 'fs_organize']);
 
     while (turns < maxTurns && !this.cancelled) {
       turns++;
@@ -101,7 +107,7 @@ class AgentLoop {
       if (!response.toolCalls || response.toolCalls.length === 0) {
         const finalText = response.text || accumulatedText;
         this.emit('agent:text-complete', { taskId, text: finalText });
-        return { text: finalText, messages: conversation, turns };
+        return { text: finalText, messages: conversation, turns, taskState };
       }
 
       // Emit tool calls so the UI can render them before execution
@@ -121,19 +127,43 @@ class AgentLoop {
         taskId
       );
 
-      // Trim large tool results before appending to conversation
-      const trimmedResults = toolResults.map((r) => ({
-        ...r,
-        content: r.content && r.content.length > 8000
-          ? r.content.slice(0, 8000) + '\n... [output truncated — ' + r.content.length + ' chars total]'
-          : r.content,
-      }));
+      // Condense large tool results before appending to conversation
+      const trimmedResults = await Promise.all(toolResults.map((r) => this._condenseOutput(r)));
 
       // Append tool results to conversation (provider-specific format handled by llm module)
       conversation.push({
         role: 'tool_results',
         results: trimmedResults,
       });
+
+      // Update taskState from results
+      for (const r of toolResults) {
+        if (!r.error && FILE_WRITE_TOOLS.has(r.name)) {
+          const tc = response.toolCalls.find((t) => t.id === r.id);
+          const p = tc?.input?.path || tc?.input?.destination;
+          if (p && !taskState.filesModified.includes(p)) taskState.filesModified.push(p);
+          taskState.completedSteps.push(r.name);
+        }
+        if (!r.error && r.content?.length > 100) {
+          taskState.toolOutputsSummary.push({ tool: r.name, summary: r.content.slice(0, 200) });
+        }
+        // Track consecutive failures for re-plan injection
+        if (r.error) {
+          consecutiveFailures.set(r.name, (consecutiveFailures.get(r.name) || 0) + 1);
+        } else {
+          consecutiveFailures.delete(r.name);
+        }
+      }
+
+      // Inject re-plan hint if any tool fails 2+ times
+      if (options.taskPlan) {
+        for (const [toolName, count] of consecutiveFailures) {
+          if (count >= 2) {
+            const r = toolResults.find((x) => x.name === toolName && x.error);
+            if (r) r.content += `\n\n[REPLAN HINT] "${toolName}" has failed ${count} times. Try an alternative approach or skip this step.`;
+          }
+        }
+      }
 
       // Emit results for UI live-update
       this.emit('agent:tool-results', {
@@ -150,12 +180,62 @@ class AgentLoop {
     }
 
     if (this.cancelled) {
-      return { text: accumulatedText, messages: conversation, turns, cancelled: true };
+      return { text: accumulatedText, messages: conversation, turns, cancelled: true, taskState };
     }
 
     throw new Error(
       `Agent reached maximum turns (${maxTurns}). The task may be too complex or the model is looping.`
     );
+  }
+
+  // --------------------------------------------------------------------------
+  // Concurrency limiter
+  // --------------------------------------------------------------------------
+
+  async _parallelWithLimit(items, fn, limit) {
+    const results = new Array(items.length);
+    let idx = 0;
+    async function worker() {
+      while (idx < items.length) {
+        const i = idx++;
+        try { results[i] = { status: 'fulfilled', value: await fn(items[i]) }; }
+        catch (reason) { results[i] = { status: 'rejected', reason }; }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return results;
+  }
+
+  // --------------------------------------------------------------------------
+  // Output condensation (replaces hard 8000-char slice)
+  // --------------------------------------------------------------------------
+
+  async _condenseOutput(result) {
+    if (!result.content || result.content.length <= 8000) return result;
+    const rawPath = this._storeRawOutput(result);
+    if (this.summarizer) {
+      try {
+        const summary = await this.summarizer(result.content, result.name);
+        return { ...result, content: `[Summarized ${result.content.length} chars → raw at ${rawPath}]\n\n${summary}` };
+      } catch { /* fall through to graceful truncation */ }
+    }
+    return {
+      ...result,
+      content:
+        result.content.slice(0, 4000) +
+        `\n\n...[${result.content.length - 6000} chars omitted]...\n\n` +
+        result.content.slice(-2000),
+    };
+  }
+
+  _storeRawOutput(result) {
+    try {
+      const dir = require('path').join(require('os').tmpdir(), 'opendesktop-tool-outputs');
+      require('fs').mkdirSync(dir, { recursive: true });
+      const p = require('path').join(dir, `${result.name}_${Date.now()}.txt`);
+      require('fs').writeFileSync(p, result.content, 'utf-8');
+      return p;
+    } catch { return '(raw storage unavailable)'; }
   }
 
   // --------------------------------------------------------------------------
@@ -197,10 +277,12 @@ class AgentLoop {
       }
     }
 
-    // Execute all approved calls in parallel
+    // Execute all approved calls in parallel (capped at 4 concurrent)
     const toExecute = [...safe, ...approvedDangerous];
-    const results = await Promise.allSettled(
-      toExecute.map((tc) => this._executeSingleTool(tc, taskId))
+    const results = await this._parallelWithLimit(
+      toExecute,
+      (tc) => this._executeSingleTool(tc, taskId),
+      4
     );
 
     return results.map((r, i) => {

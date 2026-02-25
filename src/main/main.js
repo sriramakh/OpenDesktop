@@ -11,7 +11,8 @@ const { ContextAwareness } = require('./agent/context');
 const { KeyStore }         = require('./agent/keystore');
 const { MCPManager }       = require('./agent/mcp/manager');
 const { getModelCatalog, listOllamaModels } = require('./agent/llm');
-const google = require('./connectors/google');
+const google          = require('./connectors/google');
+const reminderService = require('./reminder-service');
 
 let mainWindow  = null;
 let agentCore   = null;
@@ -75,6 +76,15 @@ async function initializeAgent() {
 
   await memory.initialize();
   await keyStore.initialize();
+
+  // Init reminder service before registering tools (reminder-tools.js requires it)
+  const emitFn = (channel, data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, data);
+    }
+  };
+  reminderService.init(userDataPath, emitFn);
+
   await toolRegistry.registerBuiltinTools();
 
   // Connect saved MCP servers and register their tools
@@ -276,6 +286,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', async () => {
+  reminderService.stop();
   if (agentCore) {
     agentCore.memory.close();
     agentCore.keyStore.close();

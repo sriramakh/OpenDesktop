@@ -201,6 +201,18 @@ const MODEL_CATALOG = {
       { id: 'sonar-deep-research', name: 'Sonar Deep Research', ctx: 128000 },
     ],
   },
+  minimax: {
+    label: 'MiniMax',
+    requiresKey: true,
+    endpoint: 'https://api.minimax.io',
+    keyPrefix: '',
+    anthropicCompatible: true,
+    models: [
+      { id: 'MiniMax-M2.5',    name: 'MiniMax M2.5',    ctx: 1000000 },
+      { id: 'MiniMax-M2',      name: 'MiniMax M2',      ctx: 1000000 },
+      { id: 'MiniMax-Text-01', name: 'MiniMax Text-01', ctx: 1000000 },
+    ],
+  },
 };
 
 function getModelCatalog() { return MODEL_CATALOG; }
@@ -279,6 +291,12 @@ async function callLLM(systemPrompt, userMessage, options = {}) {
       return _anthropicSimple(endpoint, apiKey, model, systemPrompt, userMessage, temperature, maxTokens);
     case 'google':
       return _geminiSimple(endpoint, apiKey, model, systemPrompt, userMessage, temperature, maxTokens);
+    case 'minimax':
+      return _anthropicSimple(
+        endpoint || MODEL_CATALOG.minimax.endpoint,
+        apiKey, model, systemPrompt, userMessage, temperature, maxTokens,
+        '/anthropic/v1/messages'
+      );
     default: {
       // All OpenAI-compatible providers (deepseek, xai, mistral, groq, together, perplexity, etc.)
       if (catalogEntry?.openaiCompatible || provider === 'deepseek') {
@@ -331,6 +349,12 @@ async function callWithTools(systemPrompt, messages, tools, options = {}) {
       return _ollamaWithTools(endpoint, model, systemPrompt, messages, tools, temperature, maxTokens, options);
     case 'google':
       return _geminiWithTools(endpoint, apiKey, model, systemPrompt, messages, tools, temperature, maxTokens, options);
+    case 'minimax':
+      return _anthropicWithTools(
+        endpoint || MODEL_CATALOG.minimax.endpoint,
+        apiKey, model, systemPrompt, messages, tools, temperature, maxTokens,
+        { ...options, _messagesPath: '/anthropic/v1/messages' }
+      );
     default: {
       // All OpenAI-compatible providers (deepseek, xai, mistral, groq, together, perplexity, etc.)
       if (catalogEntry?.openaiCompatible || provider === 'deepseek') {
@@ -455,7 +479,7 @@ function _internalToOpenAIMessages(messages) {
 async function _anthropicWithTools(
   endpoint, apiKey, model, systemPrompt, messages, tools, temperature, maxTokens, options
 ) {
-  const url = new URL('/v1/messages', endpoint || MODEL_CATALOG.anthropic.endpoint);
+  const url = new URL(options?._messagesPath || '/v1/messages', endpoint || MODEL_CATALOG.anthropic.endpoint);
   const anthropicMessages = _internalToAnthropicMessages(messages);
 
   const body = JSON.stringify({
@@ -824,8 +848,8 @@ async function _openAISimple(endpoint, apiKey, model, systemPrompt, userMessage,
   return JSON.parse(response).choices?.[0]?.message?.content || '';
 }
 
-async function _anthropicSimple(endpoint, apiKey, model, systemPrompt, userMessage, temperature, maxTokens) {
-  const url = new URL('/v1/messages', endpoint || MODEL_CATALOG.anthropic.endpoint);
+async function _anthropicSimple(endpoint, apiKey, model, systemPrompt, userMessage, temperature, maxTokens, messagesPath) {
+  const url = new URL(messagesPath || '/v1/messages', endpoint || MODEL_CATALOG.anthropic.endpoint);
   const response = await httpRequest(url, {
     method: 'POST',
     headers: {

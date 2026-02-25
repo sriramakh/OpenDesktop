@@ -682,6 +682,22 @@ const TOOL_SCHEMAS = {
     required: ['path'],
   },
 
+  fs_undo: {
+    description: 'Restore a file to its state before the last write/edit/delete in this session. A snapshot is taken automatically before any fs_write, fs_edit, or fs_delete call.',
+    properties: {
+      path: { type: 'string', description: 'Absolute path to the file to restore.' },
+    },
+    required: ['path'],
+  },
+
+  fs_diff: {
+    description: 'Show a unified diff of a file vs its pre-modification snapshot from this session. Useful to review what the agent changed before deciding whether to keep or undo it.',
+    properties: {
+      path: { type: 'string', description: 'Absolute path to the file.' },
+    },
+    required: ['path'],
+  },
+
   // ---------------------------------------------------------------------------
   // Office documents
   // ---------------------------------------------------------------------------
@@ -1245,6 +1261,35 @@ MANDATORY QUALITY RULES — violating any of these produces a bad presentation:
     required: ['path', 'rows'],
   },
 
+  office_csv_to_xlsx: {
+    description: 'Convert an entire CSV file directly to an Excel (.xlsx) workbook — reads ALL rows, no LLM context limit. Use this instead of office_read_csv + office_write_xlsx for any CSV with more than a few hundred rows.',
+    properties: {
+      source: {
+        type: 'string',
+        description: 'Absolute path to the source CSV file.',
+      },
+      output: {
+        type: 'string',
+        description: 'Absolute path for the output .xlsx file.',
+      },
+      sheetName: {
+        type: 'string',
+        description: "Name for the worksheet. Default: 'Data'.",
+        default: 'Data',
+      },
+      autoFormat: {
+        type: 'boolean',
+        description: 'Apply header styling, alternating row colors, frozen header row, and auto-sized columns. Default: true.',
+        default: true,
+      },
+      delimiter: {
+        type: 'string',
+        description: "CSV field delimiter. Auto-detected if omitted (comma or tab).",
+      },
+    },
+    required: ['source', 'output'],
+  },
+
   // ---------------------------------------------------------------------------
   // Connector tools (Google Drive, Gmail, Calendar)
   // ---------------------------------------------------------------------------
@@ -1531,6 +1576,38 @@ MANDATORY QUALITY RULES — violating any of these produces a bad presentation:
       },
     },
     required: ['browser', 'windowIndex', 'tabIndex', 'code'],
+  },
+  // Reminder tools
+  reminder_set: {
+    description: 'Schedule a native OS notification reminder at a specific time. Use ISO 8601 format for "at" when possible (e.g. "2026-02-26T20:00:00"), or natural language like "in 30 minutes", "8pm", "tomorrow at 9am".',
+    properties: {
+      message: { type: 'string', description: 'The reminder message to display in the notification.' },
+      at: {
+        type: 'string',
+        description: 'When to fire the reminder. Prefer ISO 8601 (e.g. "2026-02-26T20:00:00"). Also accepts: "in 30 minutes", "in 2 hours", "8pm", "8:30am", "tomorrow at 9am", "friday at 6pm", "noon", "midnight".',
+      },
+    },
+    required: ['message', 'at'],
+  },
+
+  reminder_list: {
+    description: 'List reminders. status="pending" (default) shows upcoming reminders; status="all" shows all including fired and cancelled.',
+    properties: {
+      status: {
+        type: 'string',
+        description: '"pending" (default) or "all".',
+        enum: ['pending', 'all'],
+      },
+    },
+    required: [],
+  },
+
+  reminder_cancel: {
+    description: 'Cancel a pending reminder by its ID. Use reminder_list to find IDs.',
+    properties: {
+      id: { type: 'string', description: 'The reminder ID to cancel (e.g. "rem_1234567_abc12").' },
+    },
+    required: ['id'],
   },
 };
 

@@ -56,6 +56,8 @@ class AgentCore {
       agentMode:        'comprehensive', // 'fast' | 'comprehensive'
     };
 
+    this._retryAttempt = false;
+
     if (keyStore) {
       setLLMKeyStore(keyStore);
     }
@@ -66,6 +68,11 @@ class AgentCore {
       llm: { callWithTools, getCurrentProvider },
       permissions,
       emit: this._emitWrapper.bind(this),
+      summarizer: async (content, toolName) =>
+        callLLM(
+          'Summarize this tool output in ≤300 words, preserving key facts, numbers, file paths.',
+          `Tool: ${toolName}\nOutput:\n${content.slice(0, 12000)}`
+        ),
     });
   }
 
@@ -172,28 +179,76 @@ class AgentCore {
 
       this.emit('agent:step-update', { taskId, phase: 'running', message: 'Agent is working...' });
 
+      // Generate structured plan (comprehensive mode, longer tasks)
+      const taskStartTime = Date.now();
+      let taskPlan = await this._generatePlan(message);
+
       // Build messages for this turn: past session + current user message already added above
-      // (session messages already contains the latest user message)
-      const messagesForLoop = this.sessionMessages.slice(); // shallow copy
+      const messagesForLoop = this.sessionMessages.slice();
+      if (taskPlan) {
+        messagesForLoop.push({ role: 'assistant', content: `[PLAN]\n${JSON.stringify(taskPlan, null, 2)}\n[/PLAN]\n\nExecuting plan now.` });
+        messagesForLoop.push({ role: 'user', content: 'Good. Execute the plan.' });
+      }
+
+      const agentMode = this.settings.agentMode;
 
       // Run the ReAct loop
-      const result = await this._loop.run({
+      let result = await this._loop.run({
         messages: messagesForLoop,
         systemPrompt,
         taskId,
         options: {
-          maxTurns: this.settings.agentMode === 'fast' ? 15 : this.settings.maxTurns,
+          maxTurns: agentMode === 'fast' ? 15 : this.settings.maxTurns,
+          taskPlan,
         },
         pendingApprovals: this.pendingApprovals,
       });
 
-      const summary = result.text || '(No response)';
+      let summary = result.text || '(No response)';
+
+      // Self-verification + single retry (comprehensive mode only)
+      if (agentMode !== 'fast' && !result.cancelled && !this._retryAttempt) {
+        const check = await this._verifyGoal(message, summary, taskPlan);
+        if (!check.verified) {
+          this._retryAttempt = true;
+          const retryMsgs = result.messages.concat([{
+            role: 'user',
+            content: `Task incomplete. Missing: ${check.missing || 'goal not achieved'}. Please complete it.`,
+          }]);
+          try {
+            const r2 = await this._loop.run({
+              messages: retryMsgs,
+              systemPrompt,
+              taskId,
+              options: { maxTurns: 10 },
+              pendingApprovals: this.pendingApprovals,
+            });
+            if (r2.text) { result = r2; summary = r2.text; }
+          } catch { /* ignore retry errors */ }
+          this._retryAttempt = false;
+        }
+      }
 
       // Update session with the full conversation returned from the loop
-      // The loop returns the expanded conversation including tool calls/results
       this.sessionMessages = result.messages;
 
-      // Persist to memory
+      // Persist task state
+      await this.memory.saveTaskState({
+        sessionId: this.sessionId,
+        query: message,
+        goal: taskPlan?.goal || message,
+        plan: taskPlan?.steps,
+        completedSteps: result.taskState?.completedSteps || [],
+        filesModified: result.taskState?.filesModified || [],
+        toolOutputsSummary: result.taskState?.toolOutputsSummary || [],
+        decisions: [],
+        status: result.cancelled ? 'cancelled' : 'completed',
+        turns: result.turns,
+        createdAt: taskStartTime,
+        completedAt: Date.now(),
+      });
+
+      // Persist to long-term memory
       this.memory.addToShortTerm({ role: 'assistant', content: summary, taskId, timestamp: Date.now() });
       await this.memory.addToLongTerm({
         type: 'task',
@@ -249,8 +304,8 @@ You are OpenDesktop, an autonomous AI agent running natively on ${user}'s ${plat
 
 ## Your capabilities
 You have real tools that execute directly on this machine:
-- **Filesystem**: fs_read, fs_write, fs_edit, fs_list, fs_search, fs_move, fs_delete, fs_mkdir, fs_tree, fs_info, fs_organize
-- **Office Documents**: office_read_pdf, office_pdf_search, office_pdf_ask, office_search_pdfs, office_read_docx, office_write_docx, office_search_docx, office_search_docxs, **office_analyze_xlsx**, office_read_xlsx, office_write_xlsx, **office_chart_xlsx**, **office_python_dashboard**, excel_vba_run, excel_vba_list, office_read_pptx, office_write_pptx, office_read_csv, office_write_csv
+- **Filesystem**: fs_read, fs_write, fs_edit, fs_list, fs_search, fs_move, fs_delete, fs_mkdir, fs_tree, fs_info, fs_organize, fs_undo, fs_diff
+- **Office Documents**: office_read_pdf, office_pdf_search, office_pdf_ask, office_search_pdfs, office_read_docx, office_write_docx, office_search_docx, office_search_docxs, **office_analyze_xlsx**, office_read_xlsx, office_write_xlsx, **office_chart_xlsx**, **office_python_dashboard**, excel_vba_run, excel_vba_list, office_read_pptx, office_write_pptx, office_read_csv, office_write_csv, **office_csv_to_xlsx**
 - **System**: system_exec (shell commands), system_info, system_processes, system_clipboard_read/write, system_notify
 - **Applications**: app_open, app_find, app_list, app_focus, app_quit, app_screenshot
 - **Browser/UI**: browser_navigate, browser_click, browser_type, browser_key
@@ -258,6 +313,7 @@ You have real tools that execute directly on this machine:
 - **AI**: llm_query, llm_summarize, llm_extract, llm_code
 - **Google connectors**: connector_drive_search, connector_drive_read, connector_gmail_search, connector_gmail_read, connector_calendar_events — require the user to connect via the connector button first
 - **Browser tabs**: tabs_list, tabs_navigate, tabs_close, tabs_read, tabs_focus, tabs_find_duplicates, tabs_find_forms, tabs_fill_form, tabs_run_js — manage open tabs in Chrome, Safari, Firefox, Brave, Edge, Arc
+- **Reminders**: reminder_set, reminder_list, reminder_cancel — schedule native OS notifications; use \`reminder_list\` to show what's pending; use \`reminder_cancel\` to delete one
 - **MCP tools**: Any tools prefixed with \`mcp_\` come from connected MCP servers — use them as appropriate for specialized tasks
 
 ## Critical operating principles
@@ -268,6 +324,11 @@ You have real tools that execute directly on this machine:
 5. **Recover from errors** — If a tool fails, try an alternative approach. Adapt to what you discover. If fs_search returns no results, retry with a broader pattern or a parent directory.
 6. **Be complete** — If asked to organize files, actually move them. Don't stop at listing them.
 7. **Summarize clearly** — After completing a task, give a clear, concise summary of what was done.
+8. **Tool fallback** — If a tool fails, try the next best option before giving up:
+   - File read: fs_read → office_read_* → system_exec
+   - Web: web_fetch → web_search for cached copy → tabs_read
+   - PDF: office_read_pdf → office_pdf_search → system_exec pdftotext
+9. **Clarification discipline** — Only ask the user when ambiguity is truly blocking AND exploring first (listing files, reading docs) can't resolve it AND wrong assumption would be destructive. If in doubt, state your assumption and proceed. Never ask multiple questions at once.
 
 ## Tool guidelines
 - File paths: always use absolute paths. Working directory: \`${this.settings.workingDirectory}\` — default location for all file operations unless the user specifies otherwise.
@@ -299,17 +360,20 @@ You have real tools that execute directly on this machine:
   6. Call \`office_write_pptx\` once with the complete fully-planned slides array.
 - **Excel Python dashboard workflow** (dashboard/report/visualization requests — see TOOL ROUTING above):
   1. For **CSV source**: call \`office_read_csv\` (NOT \`office_analyze_xlsx\` — that fails on CSV). For XLSX source: call \`office_read_xlsx\` with summaryOnly=true.
-  2. Call \`fs_read("${path.join(__dirname, 'skills', 'excel-dashboard.md')}")\` to load the complete Python template and skill guide
+  2. Call \`fs_read("${path.join(__dirname, 'skills', 'excel-dashboard.md')}")\` to load the complete Python template and skill guide.
   3. Design: choose 4–6 KPIs (with Excel formula strings), 3–4 charts, and 2–3 analysis sheets. Announce plan in one paragraph — do NOT wait for approval.
-  4. Write the complete \`pythonScript\` following the skill guide template. **CRITICAL RULES — violating any of these causes immediate failure:**
-     - **NEVER** use \`build_dashboard_shell\`, \`kpi_card\`, \`add_bar_chart\`, \`add_line_chart\`, \`add_pie_chart\`, or \`build_data_sheet\` as variable names — they are framework functions. Use \`title = "My Title"\` then \`dash = build_dashboard_shell(wb, title, subtitle)\`
-     - **NEVER** pass a number to \`formula=\` in \`kpi_card\` — always use Excel formula strings: \`formula='=SUM(Data!C:C)'\` not \`formula=5002\`
-     - **NEVER** write to a merged cell directly — use \`safe_cell(ws, row, col)\` near merged regions
-     - \`kpi_card\` signature: \`kpi_card(row=6, col=1, label='Name', formula='=SUM(Data!C:C)')\` — no subtitle param
-     - Call \`build_dashboard_shell(wb, title, subtitle)\` AFTER all analysis sheets are created, not before
-  5. Call \`office_python_dashboard\` — KPI formulas reference the Data/Analysis sheets (live recalculation, no hardcoded values)
+  4. Write \`pythonScript\`. **The framework pre-initializes \`wb\`, \`df\`, and the Data sheet — your script must NOT recreate them.** CRITICAL RULES:
+     - **\`wb\`, \`df\`, and the Data sheet are already created.** Your script starts at step 1 (analysis sheets).
+     - **NEVER** write \`wb = openpyxl.Workbook()\` or \`df = pd.read_csv/excel(SOURCE)\` or \`build_data_sheet(wb, df)\` — already done.
+     - Use \`build_analysis_sheet(wb, 'Name', grouped_df)\` for quick styled analysis sheets from a DataFrame.
+     - **NEVER** use \`build_dashboard_shell\`, \`kpi_card\`, \`add_bar_chart\`, \`add_line_chart\`, \`add_pie_chart\`, \`build_data_sheet\`, or \`build_analysis_sheet\` as variable names — they are framework functions.
+     - **NEVER** pass a number to \`formula=\` in \`kpi_card\` — always use Excel formula strings: \`formula='=SUM(Data!C:C)'\`
+     - Call \`build_dashboard_shell(wb, title, subtitle)\` AFTER all analysis sheets are created.
+     - End with: \`wb.save(OUTPUT); write_result({'ok': True, 'sheets': wb.sheetnames, 'summary': '...'})\`
+  5. Call \`office_python_dashboard\` — KPI formulas reference Data/Analysis sheets (live recalculation, no hardcoded values).
   6. **ALWAYS call \`office_validate_dashboard\` immediately after** — read the review workflow from \`fs_read("${path.join(__dirname, 'skills', 'dashboard-review.md')}")\`. Fix any failed checks and rebuild until score ≥ 24/25.
-  7. After passing validation: describe each sheet, each KPI metric, and that the formulas auto-recalculate when data changes
+  7. After passing validation: describe each sheet, each KPI metric, and that formulas auto-recalculate when data changes.
+- **CSV → Excel conversion**: Use \`office_csv_to_xlsx\` whenever the user wants to convert a CSV to Excel OR when the CSV has more than ~300 rows. NEVER use office_read_csv + office_write_xlsx for this — office_read_csv only returns 200 rows by default, producing a truncated file. office_csv_to_xlsx reads the entire file directly.
 - **Excel general workflow**:
   1. **Understand the data first**: For XLSX files, call \`office_analyze_xlsx\`. For CSV files, call \`office_read_csv\` (office_analyze_xlsx does NOT work on CSV files). Never assume structure — analyze it first.
   2. **Write or modify data**: Use \`office_write_xlsx\` with sheetData+autoFormat=true for bulk tables. Use operations for precision: set_cell, format_range, freeze_panes, merge_cells, create_table. ALWAYS use Excel formulas (=SUM, =IF, =VLOOKUP) not hardcoded values. Financial color coding: financial_type "input"=blue, "formula"=black, "cross_sheet"=green, "external"=red, "assumption"=yellow bg.
@@ -319,9 +383,13 @@ You have real tools that execute directly on this machine:
      - **Deep Dive**: Full breakdown by category/time period/segment with specific numbers, anomalies, and recommendations. Include data quality observations (missing values, outliers).
   - For \`office_read_xlsx\`: use summaryOnly=true for quick structure check, or full read for data analysis.
   - TOOL ROUTING: Excel/data → \`office_write_xlsx\` only. Presentations → \`office_write_pptx\` only.
+- **Reminders workflow**:
+  - When a user says "remind me at X to do Y", call \`reminder_set\` with message=Y and at=ISO-8601 datetime (convert their natural language to "YYYY-MM-DDTHH:MM:SS" using today's date). Example: "8pm tonight" → "${new Date().toISOString().slice(0,10)}T20:00:00".
+  - To see pending reminders: \`reminder_list\` (no args). To cancel: \`reminder_cancel\` with the reminder ID.
+  - The reminder fires as a native OS notification even when the app is minimized.
 - Shell commands not covered by specific tools: use \`system_exec\`
 - Opening apps: just use the app name (e.g. "Safari", "Finder", "VS Code")
-- Web research: \`web_search\` first, then \`web_fetch\` specific pages
+- **Web research**: Generate 2–3 search queries from different angles; fetch 2+ sources; cross-verify conflicting info; always cite source URL + excerpt for each claim.
 - For code generation: use \`llm_code\` then \`fs_write\` to save it.
 
 ## Content summarization workflow
@@ -423,6 +491,42 @@ You have real tools that execute directly on this machine:
 
   getSessionMessages() {
     return [...this.sessionMessages];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Structured planning (comprehensive mode only)
+  // ---------------------------------------------------------------------------
+
+  async _generatePlan(message) {
+    if (this.settings.agentMode === 'fast' || message.trim().length < 80) return null;
+    try {
+      const raw = await callLLM(
+        'You are a task planner. Output ONLY valid JSON. No markdown fences.',
+        `Produce a structured execution plan for: "${message}"\nJSON: { "goal":"...", "steps":[{"id":1,"action":"...","tool":"tool_name_or_null","depends_on":[]},...], "success_criteria":"..." }`
+      );
+      return JSON.parse(raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim());
+    } catch (err) {
+      console.warn('[AgentCore] Plan generation failed:', err.message);
+      return null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Self-verification (comprehensive mode only)
+  // ---------------------------------------------------------------------------
+
+  async _verifyGoal(originalMessage, finalAnswer, taskPlan) {
+    if (this.settings.agentMode === 'fast') return { verified: true };
+    try {
+      const criteria = taskPlan?.success_criteria || `Task: "${originalMessage}"`;
+      const raw = await callLLM(
+        'You are a task verifier. Output ONLY valid JSON.',
+        `Goal: ${criteria}\nResponse (last 3000 chars):\n${finalAnswer.slice(-3000)}\nJSON: {"verified":true/false,"reason":"one sentence","missing":"what is missing if not verified"}`
+      );
+      return JSON.parse(raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim());
+    } catch {
+      return { verified: true };
+    }
   }
 
   // ---------------------------------------------------------------------------

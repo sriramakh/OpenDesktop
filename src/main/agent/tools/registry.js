@@ -8,6 +8,7 @@ const { OfficeTools } = require('./office');
 const { CONNECTOR_TOOLS } = require('./connectors');
 const { BROWSER_TABS_TOOLS } = require('./browser-tabs');
 const { ContentTools } = require('./content-tools');
+const { ReminderTools } = require('./reminder-tools');
 const { TOOL_SCHEMAS } = require('./tool-schemas');
 
 class ToolRegistry {
@@ -66,6 +67,7 @@ class ToolRegistry {
     for (const tool of CONNECTOR_TOOLS)      this.register(tool);
     for (const tool of BROWSER_TABS_TOOLS)  this.register(tool);
     for (const tool of ContentTools)        this.register(tool);
+    for (const tool of ReminderTools)       this.register(tool);
 
     console.log(`[ToolRegistry] Registered ${this.tools.size} tools`);
   }
@@ -86,6 +88,7 @@ class ToolRegistry {
 
     switch (provider) {
       case 'anthropic':
+      case 'minimax':
         return this._toAnthropicTools(tools);
       case 'openai':
       case 'deepseek':

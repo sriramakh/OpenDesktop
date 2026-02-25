@@ -95,6 +95,32 @@ class MemorySystem {
         INSERT INTO long_term_fts(long_term_fts, rowid, id, query, summary)
           VALUES ('delete', old.rowid, old.id, old.query, old.summary);
       END;
+
+      CREATE TABLE IF NOT EXISTS task_state (
+        id              TEXT PRIMARY KEY,
+        session_id      TEXT NOT NULL,
+        query           TEXT,
+        goal            TEXT,
+        plan            TEXT,
+        completed_steps TEXT,
+        files_modified  TEXT,
+        tool_outputs_summary TEXT,
+        decisions       TEXT,
+        status          TEXT DEFAULT 'running',
+        turns           INTEGER,
+        created_at      INTEGER NOT NULL,
+        completed_at    INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS reminders (
+        id         TEXT PRIMARY KEY,
+        message    TEXT NOT NULL,
+        fire_at    INTEGER NOT NULL,
+        status     TEXT DEFAULT 'pending',
+        created_at INTEGER NOT NULL,
+        fired_at   INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_reminders_fire_at ON reminders(fire_at, status);
     `);
 
     // Migrate old JSON data if it exists and DB is fresh
@@ -269,6 +295,101 @@ class MemorySystem {
       .filter((e) => e.type === 'task')
       .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
       .slice(0, limit);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Task state persistence
+  // ---------------------------------------------------------------------------
+
+  async saveTaskState(state) {
+    if (!this.useSQLite || !this.db) return;
+    const id = `ts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO task_state
+          (id, session_id, query, goal, plan, completed_steps, files_modified,
+           tool_outputs_summary, decisions, status, turns, created_at, completed_at)
+        VALUES
+          (@id, @session_id, @query, @goal, @plan, @completed_steps, @files_modified,
+           @tool_outputs_summary, @decisions, @status, @turns, @created_at, @completed_at)
+      `).run({
+        id,
+        session_id:           state.sessionId || null,
+        query:                state.query || null,
+        goal:                 state.goal || null,
+        plan:                 state.plan ? JSON.stringify(state.plan) : null,
+        completed_steps:      state.completedSteps ? JSON.stringify(state.completedSteps) : null,
+        files_modified:       state.filesModified ? JSON.stringify(state.filesModified) : null,
+        tool_outputs_summary: state.toolOutputsSummary ? JSON.stringify(state.toolOutputsSummary) : null,
+        decisions:            state.decisions ? JSON.stringify(state.decisions) : null,
+        status:               state.status || 'completed',
+        turns:                state.turns || null,
+        created_at:           state.createdAt || Date.now(),
+        completed_at:         state.completedAt || Date.now(),
+      });
+    } catch (err) {
+      console.warn('[Memory] saveTaskState failed:', err.message);
+    }
+  }
+
+  getTaskStateBySession(sessionId) {
+    if (!this.useSQLite || !this.db) return [];
+    return this.db
+      .prepare('SELECT * FROM task_state WHERE session_id = ? ORDER BY created_at DESC')
+      .all(sessionId);
+  }
+
+  getRecentTaskStates(limit = 10) {
+    if (!this.useSQLite || !this.db) return [];
+    return this.db
+      .prepare('SELECT * FROM task_state ORDER BY created_at DESC LIMIT ?')
+      .all(limit);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reminders
+  // ---------------------------------------------------------------------------
+
+  addReminder({ id, message, fireAt }) {
+    if (!this.useSQLite || !this.db) throw new Error('SQLite not available');
+    this.db
+      .prepare('INSERT INTO reminders (id, message, fire_at, status, created_at) VALUES (?, ?, ?, \'pending\', ?)')
+      .run(id, message, fireAt, Date.now());
+    return id;
+  }
+
+  getPendingReminders() {
+    if (!this.useSQLite || !this.db) return [];
+    return this.db
+      .prepare('SELECT * FROM reminders WHERE status = \'pending\' AND fire_at <= ?')
+      .all(Date.now());
+  }
+
+  listReminders(status = 'pending') {
+    if (!this.useSQLite || !this.db) return [];
+    if (status === 'all') {
+      return this.db
+        .prepare('SELECT * FROM reminders ORDER BY fire_at DESC LIMIT 50')
+        .all();
+    }
+    return this.db
+      .prepare('SELECT * FROM reminders WHERE status = ? ORDER BY fire_at ASC')
+      .all(status);
+  }
+
+  markReminderFired(id) {
+    if (!this.useSQLite || !this.db) return;
+    this.db
+      .prepare('UPDATE reminders SET status = \'fired\', fired_at = ? WHERE id = ?')
+      .run(Date.now(), id);
+  }
+
+  cancelReminder(id) {
+    if (!this.useSQLite || !this.db) return false;
+    const result = this.db
+      .prepare('UPDATE reminders SET status = \'cancelled\' WHERE id = ? AND status = \'pending\'')
+      .run(id);
+    return result.changes > 0;
   }
 
   // ---------------------------------------------------------------------------

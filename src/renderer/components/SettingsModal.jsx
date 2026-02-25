@@ -135,6 +135,15 @@ const PROVIDER_META = {
     description: 'Sonar models with built-in web search from Perplexity',
     docsUrl: 'https://www.perplexity.ai/settings/api',
   },
+  minimax: {
+    icon: Cloud,
+    color: 'text-indigo-400',
+    bg: 'bg-indigo-500/10',
+    border: 'border-indigo-500/25',
+    activeBorder: 'border-indigo-500/60',
+    description: 'MiniMax M2.5 — agentic model with exceptional tool use, 1M context',
+    docsUrl: 'https://platform.minimax.io',
+  },
 };
 
 const DEFAULT_SETTINGS = {

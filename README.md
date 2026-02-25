@@ -35,7 +35,7 @@ Built with **Electron + React + Node.js** — everything runs locally on your ma
 │  └──────────┬────────────────────────┬─────────────────┘ │
 │  ┌──────────┴──────────┐  ┌──────────┴────────────────┐ │
 │  │   Tool Registry      │  │    Memory System          │ │
-│  │  • Filesystem (11)   │  │  • Short-term (100 msg)   │ │
+│  │  • Filesystem (13)   │  │  • Short-term (100 msg)   │ │
 │  │  • Office (21)       │  │  • Long-term (SQLite FTS) │ │
 │  │  • App Control (6)   │  │  • Full-text search       │ │
 │  │  • Browser (5)       │  │  • JSON fallback          │ │
@@ -45,7 +45,8 @@ Built with **Electron + React + Node.js** — everything runs locally on your ma
 │  │  • System (6)        │  │                          │ │
 │  │  • LLM (4)           │  │                          │ │
 │  │  • Connectors (5)    │  │                          │ │
-│  │  Total: 72 tools     │  └──────────────────────────┘ │
+│  │  • Reminders (3)     │  │                          │ │
+│  │  Total: 75 tools     │  └──────────────────────────┘ │
 │  └──────────────────────┘                                │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -80,7 +81,7 @@ Uses fast keyword heuristics with weighted scoring (strong signals × 3 + weak s
 
 ### Multi-Provider LLM Support
 
-Choose from **10 providers** and **80+ models** directly in the Settings UI:
+Choose from **11 providers** and **80+ models** directly in the Settings UI:
 
 | Provider | Models | Key Required |
 |----------|--------|:------------:|
@@ -94,6 +95,7 @@ Choose from **10 providers** and **80+ models** directly in the Settings UI:
 | **Groq** | Llama 3.3 70B, Llama 3.1 8B, Llama 3.2 90B Vision, Mixtral 8x7B, Gemma 2 9B, Qwen QwQ 32B, DeepSeek R1 70B | Yes |
 | **Together AI** | Llama 3.3 70B Turbo, Llama 3.1 405B Turbo, Qwen 2.5 72B Turbo, Mixtral 8x22B, DeepSeek R1/V3 | Yes |
 | **Perplexity** | Sonar Pro, Sonar, Sonar Reasoning Pro, Sonar Reasoning, Sonar Deep Research | Yes |
+| **MiniMax** | MiniMax-M2.5, MiniMax-M2, MiniMax-Text-01 (1M context, exceptional tool use) | Yes |
 
 **LLM module features:**
 - **Two calling modes**: `callLLM()` for simple text-in/text-out, `callWithTools()` for native agentic tool calling
@@ -110,13 +112,13 @@ Choose from **10 providers** and **80+ models** directly in the Settings UI:
 - **Encrypted API key storage** — AES-256-GCM encryption with machine-specific key derivation (PBKDF2, 100K iterations)
 - Keys are stored in `~/.config/open-desktop/.keystore.enc`, never in plaintext
 
-### Unified Tool System (72 tools)
+### Unified Tool System (75 tools)
 
 All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native function calling with every LLM provider.
 
 | Category | Tools | Count | Permission |
 |----------|-------|:-----:|------------|
-| **Filesystem** | `fs_read`, `fs_write`, `fs_edit`, `fs_list`, `fs_search`, `fs_delete`, `fs_move`, `fs_mkdir`, `fs_tree`, `fs_info`, `fs_organize` | 11 | Safe/Sensitive/Dangerous |
+| **Filesystem** | `fs_read`, `fs_write`, `fs_edit`, `fs_list`, `fs_search`, `fs_delete`, `fs_move`, `fs_mkdir`, `fs_tree`, `fs_info`, `fs_organize`, `fs_undo`, `fs_diff` | 13 | Safe/Sensitive/Dangerous |
 | **Office Documents** | `office_read_pdf`, `office_pdf_search`, `office_pdf_ask`, `office_search_pdfs`, `office_read_docx`, `office_search_docx`, `office_search_docxs`, `office_write_docx`, `office_analyze_xlsx`, `office_read_xlsx`, `office_write_xlsx`, `office_chart_xlsx`, `office_dashboard_xlsx`, `office_python_dashboard`, `office_validate_dashboard`, `excel_vba_run`, `excel_vba_list`, `office_read_pptx`, `office_write_pptx`, `office_read_csv`, `office_write_csv` | 21 | Safe/Sensitive |
 | **Google Connectors** | `connector_drive_search`, `connector_drive_read`, `connector_gmail_search`, `connector_gmail_read`, `connector_calendar_events` | 5 | Safe |
 | **App Control** | `app_open`, `app_find`, `app_list`, `app_focus`, `app_quit`, `app_screenshot` | 6 | Safe/Sensitive |
@@ -126,7 +128,8 @@ All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native f
 | **Content Tools** | `content_summarize` | 1 | Safe |
 | **System** | `system_exec`, `system_info`, `system_processes`, `system_clipboard_read`, `system_clipboard_write`, `system_notify` | 6 | Safe/Sensitive |
 | **LLM** | `llm_query`, `llm_summarize`, `llm_extract`, `llm_code` | 4 | Safe |
-| **Total** | | **72** | |
+| **Reminders** | `reminder_set`, `reminder_list`, `reminder_cancel` | 3 | Safe |
+| **Total** | | **75** | |
 
 #### Key tool capabilities
 
@@ -154,6 +157,8 @@ All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native f
 - **Excel Dashboards** — Build professional dashboards via `office_dashboard_xlsx` (native) or `office_python_dashboard` (pandas+openpyxl), validate against gold standards with `office_validate_dashboard`, and embed charts with `office_chart_xlsx`
 - **Excel VBA** — Run macros directly from the agent via `excel_vba_run` and discover them with `excel_vba_list`
 - **`content_summarize`** — Auto-detects and summarizes web articles, YouTube videos, podcast feeds, and local audio/video files using Whisper transcription (requires `@steipete/summarize` CLI)
+- **Reminder scheduling** (`reminder_set`, `reminder_list`, `reminder_cancel`) — Set natural-language reminders ("remind me at 8pm", "in 30 minutes", "tomorrow at 9am"). Fires native macOS notifications and injects an amber reminder card into the chat when triggered.
+- **File undo/diff** (`fs_undo`, `fs_diff`) — Automatic snapshot before every write/edit/delete; `fs_undo` restores, `fs_diff` shows unified diff of what changed (last 3 snapshots per file, stored in `~/.cache/opendesktop/snapshots/`)
 - **`office_read_pptx`** — PowerPoint slide extraction (titles, body text, speaker notes) via JSZip XML parsing
 - **`office_write_pptx`** — PowerPoint creation via pptxgenjs with 4 built-in themes (professional/dark/minimal/vibrant), 5 slide layouts (title/content/two-column/table/section), template color extraction, and OOXML post-processing fix
 - **`office_read_csv`** / **`office_write_csv`** — CSV/TSV with auto-delimiter detection, pagination, and JSON output
@@ -225,6 +230,7 @@ API keys are encrypted with AES-256-GCM using a machine-specific derived key and
 | Groq | [console.groq.com/keys](https://console.groq.com/keys) |
 | Together AI | [api.together.ai/settings/api-keys](https://api.together.ai/settings/api-keys) |
 | Perplexity | [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api) |
+| MiniMax | [platform.minimax.io](https://platform.minimax.io) |
 
 ### Optional: Office Document Support
 
@@ -267,6 +273,7 @@ OpenDesktop/
 │   ├── main/                    # Electron main process
 │   │   ├── main.js              # App entry, window, IPC setup
 │   │   ├── preload.js           # Context bridge API (streaming events)
+│   │   ├── reminder-service.js  # Self-contained reminder scheduler (JSON persistence, 30s polling)
 │   │   └── agent/
 │   │       ├── core.js          # AgentCore — orchestrator, auto-persona, system prompt builder
 │   │       ├── loop.js          # AgentLoop — ReAct loop with native tool calling
@@ -279,8 +286,8 @@ OpenDesktop/
 │   │       ├── context.js       # OS context awareness
 │   │       └── tools/
 │   │           ├── registry.js      # Tool registration + provider-specific schema generation
-│   │           ├── tool-schemas.js  # JSON Schema definitions for all 72 tools
-│   │           ├── filesystem.js    # 11 file ops (read, write, move, organize, tree, etc.)
+│   │           ├── tool-schemas.js  # JSON Schema definitions for all 75 tools
+│   │           ├── filesystem.js    # 13 file ops (read, write, move, organize, undo, diff, etc.)
 │   │           ├── office.js        # 21 office document ops (PDF, DOCX, XLSX, PPTX, CSV, Dashboards, VBA)
 │   │           ├── connectors.js    # 5 Google Workspace integration ops (Drive, Gmail, Calendar)
 │   │           ├── app-control.js   # 6 app ops (open with fuzzy match, find, list, etc.)
@@ -288,6 +295,7 @@ OpenDesktop/
 │   │           ├── browser-tabs.js  # 9 browser tab management ops
 │   │           ├── search-fetch.js  # 4 web ops
 │   │           ├── content-tools.js # 1 content summarization op (audio/video/web)
+│   │           ├── reminder-tools.js # 3 reminder ops (set, list, cancel)
 │   │           ├── system.js        # 6 system ops
 │   │           └── llm-tools.js     # 4 LLM ops
 │   └── renderer/                # React UI

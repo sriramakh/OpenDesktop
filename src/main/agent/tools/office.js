@@ -2282,7 +2282,7 @@ except Exception as e:
   {
     name: 'office_python_dashboard',
     category: 'office',
-    description: 'Build a comprehensive professionally styled Excel dashboard (.xlsx) from any Excel or CSV file using Python (pandas + openpyxl). ALWAYS follow the skill guide workflow: (1) call office_read_xlsx/office_read_csv to analyze the data, (2) read the skill guide fs_read("src/main/agent/skills/excel-dashboard.md"), (3) design the dashboard (KPIs, charts, analysis sheets), (4) write the complete pythonScript following the template, (5) call this tool. The tool pre-injects SOURCE, OUTPUT, RESULT_PATH, write_result() — do NOT redefine them. The script must end with write_result({ok: true, ...}).',
+    description: 'Build a professionally styled Excel dashboard (.xlsx) from any Excel or CSV data file. The framework auto-initializes wb (Workbook), df (DataFrame), and the Data sheet — your pythonScript should ONLY create analysis sheets, call build_dashboard_shell(), add kpi_card()s and charts, then wb.save(OUTPUT) + write_result({ok:True, sheets:wb.sheetnames, summary:"..."}). Never recreate wb, df, or call build_data_sheet() — they are pre-done. Use build_analysis_sheet(wb, name, grouped_df) for quick styled analysis sheets.',
     params: ['path', 'pythonScript', 'outputPath'],
     permissionLevel: 'sensitive',
     async execute({ path: filePath, pythonScript: userScript, outputPath }) {
@@ -2299,19 +2299,18 @@ except Exception as e:
       const resultPath = path.join(os.tmpdir(), `od_dash_result_${ts}.json`);
 
       // ── GOLD STANDARD boilerplate ──────────────────────────────────────────
-      // Everything injected here is ALWAYS consistent regardless of how the
-      // agent writes its script. The agent only writes data-specific logic.
+      // wb, df, and the Data sheet are auto-created by the framework.
+      // The agent script only writes analysis sheets + dashboard logic.
       const boilerplate = `#!/usr/bin/env python3
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  OpenDesktop Dashboard Framework — auto-injected by office_python_dashboard ║
-# ║  DO NOT redefine: SOURCE, OUTPUT, write_result(), COLORS, h(), ft(), al(),  ║
-# ║  brd(), set_col_width(), kpi_card(), write_section_header(),                ║
-# ║  build_data_sheet(), build_dashboard_shell()                                ║
+# ║  OpenDesktop Dashboard Framework v2 — auto-injected                        ║
+# ║  wb, df, and the Data sheet are PRE-INITIALIZED.                           ║
+# ║  Your script starts after the framework banner below.                      ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 import sys, json, os, subprocess, time, traceback, atexit, re
 from datetime import datetime
 
-# ── Paths (injected by tool) ──────────────────────────────────────────────────
+# ── Injected paths ────────────────────────────────────────────────────────────
 SOURCE      = ${JSON.stringify(resolved)}
 OUTPUT      = ${JSON.stringify(resolvedOut)}
 RESULT_PATH = ${JSON.stringify(resultPath)}
@@ -2320,8 +2319,18 @@ RESULT_PATH = ${JSON.stringify(resultPath)}
 _result_written = False
 
 def write_result(data):
+    """Write result JSON and auto-save wb if ok=True and file not yet saved."""
     global _result_written
     _result_written = True
+    # Auto-save workbook when ok=True and OUTPUT hasn't been written yet
+    if data.get('ok'):
+        _wb = globals().get('wb')
+        if _wb and not os.path.exists(OUTPUT):
+            try:
+                _wb.save(OUTPUT)
+                print(f'  [Framework] Auto-saved: {os.path.basename(OUTPUT)}', flush=True)
+            except Exception as _se:
+                data['save_warning'] = str(_se)
     with open(RESULT_PATH, 'w') as f:
         json.dump(data, f)
 
@@ -2347,7 +2356,7 @@ def _ensure_packages():
         try:
             __import__(pkg)
         except ImportError:
-            print(f"Installing {pkg}...")
+            print(f'Installing {pkg}...', flush=True)
             for cmd in [
                 [sys.executable, '-m', 'pip', 'install', pkg, '--quiet', '--break-system-packages'],
                 [sys.executable, '-m', 'pip', 'install', pkg, '--quiet', '--user'],
@@ -2361,8 +2370,9 @@ def _ensure_packages():
                     continue
 _ensure_packages()
 
-# ── Imports (always available — do NOT re-import) ─────────────────────────────
+# ── Imports ───────────────────────────────────────────────────────────────────
 import pandas as pd
+import numpy as np
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.chart import BarChart, LineChart, PieChart, ScatterChart, AreaChart, Reference
@@ -2372,32 +2382,28 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.formatting.rule import ColorScaleRule, DataBarRule
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-# ── GOLD STANDARD color palette ───────────────────────────────────────────────
+# ── Color palette ─────────────────────────────────────────────────────────────
 COLORS = {
-    # Core brand colors
-    'NAVY':     '1A1A2E', 'BLUE':    '2E4057', 'TEAL':    '048A81',
-    'AMBER':    'F4A261', 'RED':     'E76F51', 'GREEN':   '2ECC71',
-    # Surface / text
-    'LIGHT_BG': 'F5F7FA', 'CARD_BG': 'FFFFFF', 'MUTED':   '94A3B8',
-    'DARK_TEXT':'1E293B', 'MID_TEXT':'475569',
-    # Extra colors agents commonly request
-    'ORANGE':   'F97316', 'PURPLE':  '7C3AED', 'PINK':    'EC4899',
-    'CYAN':     '06B6D4', 'LIME':    '84CC16', 'INDIGO':  '4F46E5',
-    'YELLOW':   'EAB308', 'GRAY':    '6B7280', 'WHITE':   'FFFFFF',
-    'BLACK':    '000000', 'DARK':    '1E293B',
+    'NAVY': '1A1A2E', 'BLUE': '2E4057', 'TEAL': '048A81',
+    'AMBER': 'F4A261', 'RED': 'E76F51', 'GREEN': '2ECC71',
+    'LIGHT_BG': 'F5F7FA', 'CARD_BG': 'FFFFFF', 'MUTED': '94A3B8',
+    'DARK_TEXT': '1E293B', 'MID_TEXT': '475569',
+    'ORANGE': 'F97316', 'PURPLE': '7C3AED', 'PINK': 'EC4899',
+    'CYAN': '06B6D4', 'LIME': '84CC16', 'INDIGO': '4F46E5',
+    'YELLOW': 'EAB308', 'GRAY': '6B7280', 'WHITE': 'FFFFFF',
+    'BLACK': '000000', 'DARK': '1E293B',
 }
-CHART_PALETTE = ['2E4057','E76F51','048A81','F4A261','6B4EFF','2ECC71','E74C3C','F39C12']
+CHART_PALETTE = ['2E4057', 'E76F51', '048A81', 'F4A261', '6B4EFF', '2ECC71', 'E74C3C', 'F39C12']
 
-# Global dashboard sheet reference — set by build_dashboard_shell(), used by kpi_card()
-DASH = None
-CHART_ROW = 11  # Charts start at row 11 on the Dashboard sheet
+DASH = None       # set by build_dashboard_shell()
+CHART_ROW = 11    # charts start at row 11 on the Dashboard sheet
 
-# ── Style helpers (always available — DO NOT redefine) ────────────────────────
+# ── Style helpers ─────────────────────────────────────────────────────────────
 def h(hex_color):
-    return PatternFill('solid', fgColor=hex_color)
+    return PatternFill('solid', fgColor=COLORS.get(hex_color, hex_color).lstrip('#'))
 
 def ft(size=11, bold=False, color='1E293B'):
-    return Font(name='Calibri', size=size, bold=bold, color=color)
+    return Font(name='Calibri', size=size, bold=bold, color=COLORS.get(color, color).lstrip('#'))
 
 def al(horiz='center', vert='center', wrap=False):
     return Alignment(horizontal=horiz, vertical=vert, wrap_text=wrap)
@@ -2406,353 +2412,87 @@ def brd(color='D1D5DB', style='thin'):
     s = Side(border_style=style, color=color)
     return Border(left=s, right=s, top=s, bottom=s)
 
-def _resolve_color(color_key):
-    """Accept a COLORS key name ('NAVY'), a hex string ('1A1A2E'), or '#1A1A2E'."""
-    if color_key in COLORS:
-        return COLORS[color_key]
-    # Strip leading # if present
-    return color_key.lstrip('#')
+def _resolve_color(c):
+    return COLORS.get(c, c).lstrip('#')
 
 def set_col_width(ws, *_):
-    """Auto-fit all columns in ws. Extra arguments are silently ignored."""
+    """Auto-fit column widths (capped at 45). Extra args ignored."""
     for col_cells in ws.columns:
-        max_len = max(
-            (len(str(cell.value)) for cell in col_cells if cell.value is not None),
-            default=8
-        )
+        max_len = max((len(str(c.value)) for c in col_cells if c.value is not None), default=8)
         ws.column_dimensions[get_column_letter(col_cells[0].column)].width = min(max_len + 3, 45)
 
+# ── KPI card ──────────────────────────────────────────────────────────────────
 def kpi_card(*args, fmt='#,##0', n_cols=2, label=None, row=None, col=None,
              ws=None, formula=None, **kwargs):
     """
-    Draw a professional KPI card. GOLD STANDARD styling — always consistent.
-    Accepts any calling convention — type-based inference handles all patterns:
-
-        kpi_card(dash, row=6, col=1, label='Total Sales', formula='=SUM(Data!C:C)')
-        kpi_card(dash, 6, 1, 'Total Sales', '=SUM(Data!C:C)')
-        kpi_card(dash, 'Total Sales', '=SUM(Data!C:C)', row=6, col=1)
-        kpi_card(6, 1, 'Total Sales', '=SUM(Data!C:C)')          # ws omitted → uses global DASH
-
-    Note: subtitle, icon, color and other unknown kwargs are silently accepted and ignored.
+    Draw a KPI card. Accepts any calling convention:
+        kpi_card(row=6, col=1, label='Total Trades', formula='=COUNTA(Data!A:A)-1')
+        kpi_card(6, 1, 'Total Trades', '=COUNTA(Data!A:A)-1')
+    ws defaults to global DASH when omitted.
+    Unknown kwargs (subtitle, icon, color, bg_color) are silently ignored.
     """
-    if kwargs:
-        _unk = [k for k in kwargs if k not in ('subtitle', 'icon', 'color', 'bg_color')]
-        if _unk:
-            print(f'[kpi_card] note: unknown kwargs ignored: {_unk}', flush=True)
     global DASH
-    # Seed from explicit keyword args (they always win)
-    _ws      = ws
-    _row     = row
-    _col     = col
-    _label   = label
-    _formula = formula
-
-    # Process positional args left-to-right, classifying each by type
-    remaining = list(args)
-
-    # Step 1: consume worksheet (first arg that has .cell)
-    if remaining and hasattr(remaining[0], 'cell'):
-        _ws = remaining.pop(0)
-
-    # Step 2: consume any remaining positional args — classify by type
-    for a in remaining:
-        if isinstance(a, int):
-            # Integers fill row then col in order
-            if _row is None:
-                _row = a
-            elif _col is None:
-                _col = a
-        elif isinstance(a, str) and a.startswith('='):
-            if _formula is None:
-                _formula = a
-        elif isinstance(a, str):
-            if _label is None:
-                _label = a
-        # Worksheet passed out-of-order (unusual but safe)
-        elif hasattr(a, 'cell') and _ws is None:
-            _ws = a
-
-    # Fall back to global DASH if no worksheet was provided
-    if _ws is None:
-        _ws = DASH
-
-    if _ws is None:      raise RuntimeError('kpi_card: no worksheet — call build_dashboard_shell() first')
+    _ws, _row, _col, _label, _formula = ws, row, col, label, formula
+    for a in list(args):
+        if hasattr(a, 'cell') and _ws is None:         _ws = a
+        elif isinstance(a, int) and _row is None:      _row = a
+        elif isinstance(a, int) and _col is None:      _col = a
+        elif isinstance(a, str) and a.startswith('=') and _formula is None: _formula = a
+        elif isinstance(a, str) and _label is None:    _label = a
+    if _ws is None: _ws = DASH
+    if _ws is None:      raise RuntimeError('kpi_card: call build_dashboard_shell() first')
     if _row is None:     raise ValueError('kpi_card: row is required')
     if _col is None:     raise ValueError('kpi_card: col is required')
     if _label is None:   raise ValueError('kpi_card: label is required')
-    if _formula is None: raise ValueError('kpi_card: formula is required')
+    if _formula is None: raise ValueError('kpi_card: formula is required (use Excel formula string like "=SUM(Data!C:C)")')
 
     end_col = _col + n_cols - 1
-
-    # ── Purge stale MergedCell proxies from the card footprint ────────────────
-    # openpyxl.merge_cells() leaves MergedCell proxy objects in _ws._cells even
-    # after a prior merge in the same area. unmerge_cells() removes the range
-    # from merged_cells.ranges but does NOT remove those proxy objects from _cells.
-    # Accessing them later raises "MergedCell.value is read-only" because they are
-    # not real Cells. We fix this by:
-    #   1. Removing any merge ranges that overlap with our card's footprint
-    #   2. Deleting the stale MergedCell proxies from _ws._cells so the next
-    #      _ws.cell() call creates fresh, writable Cell objects in their place.
     from openpyxl.cell.cell import MergedCell as _MC
     _overlapping = [str(_mr) for _mr in list(_ws.merged_cells.ranges)
-                    if (_mr.min_row <= _row + 2 and _mr.max_row >= _row and
-                        _mr.min_col <= end_col   and _mr.max_col >= _col)]
-    for _rng in _overlapping:
-        _ws.unmerge_cells(_rng)
+                    if _mr.min_row <= _row + 2 and _mr.max_row >= _row
+                    and _mr.min_col <= end_col and _mr.max_col >= _col]
+    for _rng in _overlapping: _ws.unmerge_cells(_rng)
     for _r in range(_row, _row + 3):
         for _c in range(_col, end_col + 1):
-            if isinstance(_ws._cells.get((_r, _c)), _MC):
-                del _ws._cells[(_r, _c)]
-
-    # Now all cells in the footprint are fresh — safe to style and re-merge
+            if isinstance(_ws._cells.get((_r, _c)), _MC): del _ws._cells[(_r, _c)]
     for r in range(_row, _row + 3):
         for c in range(_col, end_col + 1):
-            cell = _ws.cell(r, c)
-            cell.fill = h(COLORS['CARD_BG'])
-            cell.border = brd()
+            cell = _ws.cell(r, c); cell.fill = h('CARD_BG'); cell.border = brd()
     top = Side(border_style='medium', color=COLORS['BLUE'])
     for c in range(_col, end_col + 1):
-        _ws.cell(_row, c).border = Border(
-            top=top,
+        _ws.cell(_row, c).border = Border(top=top,
             left=Side(border_style='thin', color='D1D5DB'),
             right=Side(border_style='thin', color='D1D5DB'),
-            bottom=Side(border_style='thin', color='D1D5DB'),
-        )
+            bottom=Side(border_style='thin', color='D1D5DB'))
     _ws.merge_cells(start_row=_row, start_column=_col, end_row=_row, end_column=end_col)
-    lc = _ws.cell(_row, _col)   # always a fresh Cell after the purge above
-    lc.value = str(_label).upper()
-    lc.font = ft(8, True, COLORS['MUTED'])
-    lc.alignment = al()
-    lc.fill = h(COLORS['CARD_BG'])
+    lc = _ws.cell(_row, _col)
+    lc.value = str(_label).upper(); lc.font = ft(8, True, 'MUTED')
+    lc.alignment = al(); lc.fill = h('CARD_BG')
     _ws.merge_cells(start_row=_row+1, start_column=_col, end_row=_row+2, end_column=end_col)
-    vc = _ws.cell(_row+1, _col)  # always a fresh Cell after the purge above
-    vc.value = _formula
-    vc.number_format = fmt
-    vc.font = ft(24, True, COLORS['NAVY'])
-    vc.alignment = al()
-    vc.fill = h(COLORS['CARD_BG'])
+    vc = _ws.cell(_row+1, _col)
+    vc.value = _formula; vc.number_format = fmt
+    vc.font = ft(24, True, 'NAVY'); vc.alignment = al(); vc.fill = h('CARD_BG')
 
+# ── Section / analysis helpers ────────────────────────────────────────────────
 def write_section_header(ws, row, col, text, n_cols=12):
-    """Navy banner row spanning n_cols columns."""
     end_col = col + n_cols - 1
     ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=end_col)
     c = ws.cell(row, col)
-    c.value = '  ' + text.upper()
-    c.fill = h(COLORS['NAVY'])
-    c.font = ft(10, True, 'FFFFFF')
-    c.alignment = al('left', 'center')
+    c.value = '  ' + text.upper(); c.fill = h('NAVY')
+    c.font = ft(10, True, 'FFFFFF'); c.alignment = al('left', 'center')
     ws.row_dimensions[row].height = 18
 
-def build_data_sheet(wb, df, colorscale_cols=None):
-    """
-    Build a GOLD STANDARD Data sheet on wb.active.
-    - Blue header row, alternating light-blue / white rows
-    - Excel Table with TableStyleMedium2
-    - Red→White→Green ColorScale on specified numeric columns
-    - Frozen header, auto-fitted column widths
-    Returns the worksheet.
-    """
-    ws = wb.active
-    ws.title = 'Data'
-    HEADER_FILL = h(COLORS['BLUE'])
-    HEADER_FONT = ft(10, True, 'FFFFFF')
-    ALT_FILL    = h('EFF6FF')
-
-    # Header
-    for ci, cn in enumerate(df.columns, 1):
-        c = ws.cell(1, ci, cn)
-        c.fill = HEADER_FILL
-        c.font = HEADER_FONT
-        c.alignment = al()
-
-    # Data rows
-    N = len(df)
-    for ri, row_vals in enumerate(df.itertuples(index=False), 2):
-        fill = ALT_FILL if ri % 2 == 0 else h(COLORS['CARD_BG'])
-        for ci, v in enumerate(row_vals, 1):
-            c = ws.cell(ri, ci)
-            if hasattr(v, 'to_pydatetime'):
-                c.value = v.to_pydatetime()
-            elif pd.isna(v):
-                c.value = None
-            else:
-                c.value = v
-            c.fill = fill
-
-    # Excel Table
-    last_letter = get_column_letter(len(df.columns))
-    tbl = Table(displayName='DataTable', ref=f'A1:{last_letter}{N+1}')
-    tbl.tableStyleInfo = TableStyleInfo(
-        name='TableStyleMedium2', showFirstColumn=False,
-        showLastColumn=False, showRowStripes=True, showColumnStripes=False
-    )
-    ws.add_table(tbl)
-
-    # Color scales on numeric columns
-    for col_name in (colorscale_cols or []):
-        if col_name in df.columns:
-            cl = get_column_letter(df.columns.get_loc(col_name) + 1)
-            ws.conditional_formatting.add(
-                f'{cl}2:{cl}{N+1}',
-                ColorScaleRule(
-                    start_type='min', start_color='E76F51',
-                    mid_type='num',   mid_value=0,  mid_color='FFFFFF',
-                    end_type='max',   end_color='2ECC71'
-                )
-            )
-
-    ws.freeze_panes = 'A2'
-    set_col_width(ws)
-    print(f'  Data sheet: {N} rows x {len(df.columns)} cols')
-    return ws
-
-def build_dashboard_shell(wb, title, subtitle=''):
-    """
-    Create the Dashboard sheet (inserted at position 0) with:
-    - Navy title banner (rows 1-3)
-    - Light subtitle bar (row 4)
-    - 'KEY METRICS' section header (row 5)
-    - KPI rows (6-8), spacer (9)
-    - 'CHARTS & ANALYSIS' section header (row 10)
-    Sets global DASH and returns the dash worksheet.
-    CHART_ROW = 11 is pre-defined. Place kpi_card() at row=6, charts at CHART_ROW.
-    """
-    global DASH
-    dash = wb.create_sheet('Dashboard', 0)
-    dash.sheet_view.showGridLines = False
-
-    # 12-column grid, each ~12 chars wide
-    for ci in range(1, 13):
-        dash.column_dimensions[get_column_letter(ci)].width = 12
-
-    # Title banner
-    dash.merge_cells('A1:L3')
-    tc = dash['A1']
-    tc.value = title
-    tc.fill = h(COLORS['NAVY'])
-    tc.font = ft(20, True, 'FFFFFF')
-    tc.alignment = al()
-    for r in range(1, 4):
-        dash.row_dimensions[r].height = 20
-
-    # Subtitle
-    dash.merge_cells('A4:L4')
-    sc = dash['A4']
-    sc.value = subtitle if subtitle else ''
-    sc.fill = h(COLORS['LIGHT_BG'])
-    sc.font = ft(9, False, COLORS['MID_TEXT'])
-    sc.alignment = al('left', 'center')
-    dash.row_dimensions[4].height = 14
-
-    # Section headers + row heights
-    write_section_header(dash, 5, 1, 'Key Metrics', n_cols=12)
-    for r in [6, 7, 8]:
-        dash.row_dimensions[r].height = 22
-    dash.row_dimensions[9].height = 8
-    write_section_header(dash, 10, 1, 'Charts & Analysis', n_cols=12)
-    dash.row_dimensions[10].height = 18
-
-    # Page setup
-    dash.page_setup.orientation = 'landscape'
-    dash.page_setup.fitToWidth  = 1
-    dash.page_setup.fitToHeight = 0
-
-    DASH = dash
-    return dash
-
-def add_bar_chart(dash, source_ws, title, n_data_rows,
-                  data_col=2, cat_col=1, anchor='A11',
-                  color=None, width=14, height=9):
-    """Add a clustered column BarChart to dash, referencing source_ws."""
-    chart = BarChart()
-    chart.type = 'col'
-    chart.grouping = 'clustered'
-    chart.title = title
-    chart.style = 10
-    chart.width = width
-    chart.height = height
-    chart.y_axis.numFmt = '#,##0'
-    chart.add_data(
-        Reference(source_ws, min_col=data_col, min_row=1, max_row=n_data_rows + 1),
-        titles_from_data=True
-    )
-    chart.set_categories(
-        Reference(source_ws, min_col=cat_col, min_row=2, max_row=n_data_rows + 1)
-    )
-    if chart.series and color:
-        chart.series[0].graphicalProperties.solidFill = color
-        chart.series[0].graphicalProperties.line.solidFill = color
-    dash.add_chart(chart, anchor)
-    return chart
-
-def add_line_chart(dash, source_ws, title, n_data_rows,
-                   data_col=2, cat_col=1, anchor='G11',
-                   color=None, width=14, height=9):
-    """Add a smooth LineChart to dash, referencing source_ws."""
-    chart = LineChart()
-    chart.title = title
-    chart.style = 10
-    chart.width = width
-    chart.height = height
-    chart.smooth = True
-    chart.y_axis.numFmt = '#,##0'
-    chart.add_data(
-        Reference(source_ws, min_col=data_col, min_row=1, max_row=n_data_rows + 1),
-        titles_from_data=True
-    )
-    chart.set_categories(
-        Reference(source_ws, min_col=cat_col, min_row=2, max_row=n_data_rows + 1)
-    )
-    if chart.series and color:
-        chart.series[0].graphicalProperties.line.solidFill = color
-        chart.series[0].graphicalProperties.line.width = 25000
-    dash.add_chart(chart, anchor)
-    return chart
-
-def add_pie_chart(dash, source_ws, title, n_slices,
-                  data_col=2, cat_col=1, anchor='A26', width=14, height=9):
-    """Add a PieChart (capped at 7 slices) to dash, referencing source_ws."""
-    slices = min(n_slices, 7)
-    chart = PieChart()
-    chart.title = title
-    chart.style = 10
-    chart.width = width
-    chart.height = height
-    chart.add_data(
-        Reference(source_ws, min_col=data_col, min_row=1, max_row=slices + 1),
-        titles_from_data=True
-    )
-    chart.set_categories(
-        Reference(source_ws, min_col=cat_col, min_row=2, max_row=slices + 1)
-    )
-    dash.add_chart(chart, anchor)
-    return chart
-
 def style_analysis_header(ws, headers, color_key='NAVY'):
-    """Write a styled header row on an analysis sheet."""
-    fill = h(_resolve_color(color_key))
-    font = ft(10, True, 'FFFFFF')
+    fill = h(_resolve_color(color_key)); font = ft(10, True, 'FFFFFF')
     for i, hdr in enumerate(headers, 1):
-        c = ws.cell(1, i, hdr)
-        c.fill = fill
-        c.font = font
-        c.alignment = al()
+        c = ws.cell(1, i, hdr); c.fill = fill; c.font = font; c.alignment = al()
 
 def style_analysis_row(ws, row, n_cols, alt_color='EFF6FF'):
-    """Apply alternating fill to a data row on an analysis sheet."""
-    fill = h(alt_color) if row % 2 == 0 else h(COLORS['CARD_BG'])
-    for c in range(1, n_cols + 1):
-        ws.cell(row, c).fill = fill
+    fill = h(alt_color) if row % 2 == 0 else h('CARD_BG')
+    for c in range(1, n_cols + 1): ws.cell(row, c).fill = fill
 
 def safe_cell(ws, row, col):
-    """
-    Return a writable Cell even if the coordinate falls inside a merged region.
-    If the cell is a MergedCell (non-top-left of a merge), returns the top-left cell.
-    Use this when writing to cells that may have been merged by kpi_card or build_dashboard_shell.
-
-    Example:
-        safe_cell(dash, 6, 3).value = '=SUM(Data!C:C)'   # safe even if (6,3) is merged
-    """
+    """Writable cell even if coordinate is inside a merged region."""
     from openpyxl.cell.cell import MergedCell as _MC
     c = ws.cell(row, col)
     if isinstance(c, _MC):
@@ -2761,132 +2501,238 @@ def safe_cell(ws, row, col):
                 return ws.cell(mr.min_row, mr.min_col)
     return c
 
-import atexit
+def build_analysis_sheet(wb, name, df_agg, color_key='BLUE'):
+    """
+    Create a styled analysis sheet from a pandas DataFrame.
+    Handles all header styling, alternating row colors, and column widths.
+    Returns the worksheet.
+
+    Example:
+        by_exit = df.groupby('Exit_Reason')['Net_PnL'].agg(['sum','count']).reset_index()
+        by_exit.columns = ['Exit Reason', 'Net PnL', 'Count']
+        ws_exit = build_analysis_sheet(wb, 'By Exit Reason', by_exit)
+    """
+    ws = wb.create_sheet(name)
+    style_analysis_header(ws, list(df_agg.columns), color_key)
+    n_cols = len(df_agg.columns)
+    for i, row_vals in enumerate(df_agg.itertuples(index=False), 2):
+        for j, v in enumerate(row_vals, 1):
+            ws.cell(i, j, None if (isinstance(v, float) and np.isnan(v)) else v)
+        style_analysis_row(ws, i, n_cols)
+    set_col_width(ws)
+    print(f'  {name}: {len(df_agg)} rows x {n_cols} cols', flush=True)
+    return ws
+
+# ── Data sheet ────────────────────────────────────────────────────────────────
+def build_data_sheet(wb_arg, df_arg, colorscale_cols=None):
+    """Build the Data sheet. Called automatically — do NOT call again."""
+    ws = wb_arg.active; ws.title = 'Data'
+    HEADER_FILL = h('BLUE'); HEADER_FONT = ft(10, True, 'FFFFFF'); ALT_FILL = h('EFF6FF')
+    for ci, cn in enumerate(df_arg.columns, 1):
+        c = ws.cell(1, ci, cn); c.fill = HEADER_FILL; c.font = HEADER_FONT; c.alignment = al()
+    N = len(df_arg)
+    for ri, row_vals in enumerate(df_arg.itertuples(index=False), 2):
+        fill = ALT_FILL if ri % 2 == 0 else h('CARD_BG')
+        for ci, v in enumerate(row_vals, 1):
+            c = ws.cell(ri, ci)
+            if hasattr(v, 'to_pydatetime'): c.value = v.to_pydatetime()
+            elif isinstance(v, float) and np.isnan(v): c.value = None
+            else: c.value = v
+            c.fill = fill
+    last_letter = get_column_letter(len(df_arg.columns))
+    tbl = Table(displayName='DataTable', ref=f'A1:{last_letter}{N+1}')
+    tbl.tableStyleInfo = TableStyleInfo(name='TableStyleMedium2',
+        showFirstColumn=False, showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+    ws.add_table(tbl)
+    for col_name in (colorscale_cols or []):
+        if col_name in df_arg.columns:
+            cl = get_column_letter(df_arg.columns.get_loc(col_name) + 1)
+            ws.conditional_formatting.add(f'{cl}2:{cl}{N+1}',
+                ColorScaleRule(start_type='min', start_color='E76F51',
+                               mid_type='num', mid_value=0, mid_color='FFFFFF',
+                               end_type='max', end_color='2ECC71'))
+    ws.freeze_panes = 'A2'; set_col_width(ws)
+    print(f'  Data sheet: {N} rows x {len(df_arg.columns)} cols', flush=True)
+    return ws
+
+# Alias — accept common wrong names without error
+add_data_sheet = build_data_sheet
+
+# ── Dashboard shell ───────────────────────────────────────────────────────────
+def build_dashboard_shell(wb, title, subtitle=''):
+    """
+    Create the Dashboard sheet (position 0) with title banner, KPI row area,
+    and Charts section. Sets global DASH. CHART_ROW=11.
+    Call AFTER creating all analysis sheets.
+    """
+    global DASH
+    dash = wb.create_sheet('Dashboard', 0)
+    dash.sheet_view.showGridLines = False
+    for ci in range(1, 13): dash.column_dimensions[get_column_letter(ci)].width = 12
+    dash.merge_cells('A1:L3')
+    tc = dash['A1']; tc.value = title; tc.fill = h('NAVY')
+    tc.font = ft(20, True, 'FFFFFF'); tc.alignment = al()
+    for r in range(1, 4): dash.row_dimensions[r].height = 20
+    dash.merge_cells('A4:L4')
+    sc = dash['A4']; sc.value = subtitle or ''
+    sc.fill = h('LIGHT_BG'); sc.font = ft(9, False, 'MID_TEXT'); sc.alignment = al('left', 'center')
+    dash.row_dimensions[4].height = 14
+    write_section_header(dash, 5, 1, 'Key Metrics', n_cols=12)
+    for r in [6, 7, 8]: dash.row_dimensions[r].height = 22
+    dash.row_dimensions[9].height = 8
+    write_section_header(dash, 10, 1, 'Charts & Analysis', n_cols=12)
+    dash.row_dimensions[10].height = 18
+    dash.page_setup.orientation = 'landscape'
+    dash.page_setup.fitToWidth = 1; dash.page_setup.fitToHeight = 0
+    DASH = dash
+    return dash
+
+# ── Chart helpers ─────────────────────────────────────────────────────────────
+def add_bar_chart(dash, source_ws, title, n_data_rows,
+                  data_col=2, cat_col=1, anchor='A11', color=None, width=14, height=9):
+    chart = BarChart(); chart.type = 'col'; chart.grouping = 'clustered'
+    chart.title = title; chart.style = 10; chart.width = width; chart.height = height
+    chart.y_axis.numFmt = '#,##0'
+    chart.add_data(Reference(source_ws, min_col=data_col, min_row=1, max_row=n_data_rows+1), titles_from_data=True)
+    chart.set_categories(Reference(source_ws, min_col=cat_col, min_row=2, max_row=n_data_rows+1))
+    if chart.series and color:
+        chart.series[0].graphicalProperties.solidFill = color
+        chart.series[0].graphicalProperties.line.solidFill = color
+    dash.add_chart(chart, anchor); return chart
+
+def add_line_chart(dash, source_ws, title, n_data_rows,
+                   data_col=2, cat_col=1, anchor='G11', color=None, width=14, height=9):
+    chart = LineChart(); chart.title = title; chart.style = 10
+    chart.width = width; chart.height = height; chart.smooth = True; chart.y_axis.numFmt = '#,##0'
+    chart.add_data(Reference(source_ws, min_col=data_col, min_row=1, max_row=n_data_rows+1), titles_from_data=True)
+    chart.set_categories(Reference(source_ws, min_col=cat_col, min_row=2, max_row=n_data_rows+1))
+    if chart.series and color:
+        chart.series[0].graphicalProperties.line.solidFill = color
+        chart.series[0].graphicalProperties.line.width = 25000
+    dash.add_chart(chart, anchor); return chart
+
+def add_pie_chart(dash, source_ws, title, n_slices,
+                  data_col=2, cat_col=1, anchor='A26', width=14, height=9):
+    slices = min(n_slices, 7)
+    chart = PieChart(); chart.title = title; chart.style = 10
+    chart.width = width; chart.height = height
+    chart.add_data(Reference(source_ws, min_col=data_col, min_row=1, max_row=slices+1), titles_from_data=True)
+    chart.set_categories(Reference(source_ws, min_col=cat_col, min_row=2, max_row=slices+1))
+    dash.add_chart(chart, anchor); return chart
+
+# ── Framework exit validator ──────────────────────────────────────────────────
+import sys as _od_sys
+_od_fns_orig = {
+    'build_dashboard_shell': build_dashboard_shell,
+    'kpi_card': kpi_card, 'add_bar_chart': add_bar_chart,
+    'add_line_chart': add_line_chart, 'add_pie_chart': add_pie_chart,
+    'build_data_sheet': build_data_sheet, 'build_analysis_sheet': build_analysis_sheet,
+}
+_od_sys._od_fns_ = _od_fns_orig
+del _od_sys
 
 def _framework_validate():
-    """Auto-runs at exit. Detects shadowed functions, missing build_dashboard_shell, and hardcoded KPIs."""
     global DASH
-    import sys as _s
-    _saved = getattr(_s, '_od_fns_', {})
     _g = globals()
-
-    # ── 1. Detect framework function name shadowing ───────────────────────
-    _shadowed = {}
+    _saved = getattr(__import__('sys'), '_od_fns_', {})
     for _fname, _orig in _saved.items():
         _cur = _g.get(_fname)
-        if _cur is not _orig:
-            _shadowed[_fname] = _cur
-
-    if _shadowed:
-        for _fname, _cur_val in _shadowed.items():
-            _typ = type(_cur_val).__name__
-            print(f'\\n[FRAMEWORK ERROR] "{_fname}" was overwritten with {_typ}!', flush=True)
-            if isinstance(_cur_val, str):
-                print(f'  Its value is now: {repr(_cur_val)[:80]}', flush=True)
+        if _cur is not _orig and _fname != 'add_data_sheet':
+            print(f'\\n[FRAMEWORK ERROR] "{_fname}" was overwritten! Do not use framework function names as variables.', flush=True)
+            if isinstance(_cur, str):
+                print(f'  Its value is now the string: {repr(_cur)[:80]}', flush=True)
                 if _fname == 'build_dashboard_shell':
-                    print(f'  WRONG:   build_dashboard_shell = "My Dashboard Title"  ← this kills the function!', flush=True)
-                    print(f'  CORRECT: title = "My Dashboard Title"', flush=True)
-                    print(f'           dash = build_dashboard_shell(wb, title, "optional subtitle")', flush=True)
-                else:
-                    print(f'  NEVER use "{_fname}" as a variable name — it is a framework function.', flush=True)
-            elif callable(_cur_val):
-                print(f'  It was replaced by a different callable. Do not redefine framework functions.', flush=True)
-            else:
-                print(f'  NEVER use "{_fname}" as a variable name — it is a framework function.', flush=True)
-        return
-
-    # ── 2. Check build_dashboard_shell was called ─────────────────────────
+                    print(f'  WRONG:   build_dashboard_shell = "My Title"', flush=True)
+                    print(f'  CORRECT: title = "My Title"; dash = build_dashboard_shell(wb, title, subtitle)', flush=True)
+            return
     if DASH is None:
         print('\\n[FRAMEWORK ERROR] build_dashboard_shell() was never called!', flush=True)
-        print('  CORRECT ORDER:', flush=True)
-        print('    1. Load data:  df = pd.read_csv(SOURCE)', flush=True)
-        print('    2. Build Data: build_data_sheet(wb, df)', flush=True)
-        print('    3. Analysis:   ws = wb.create_sheet("By Category")', flush=True)
-        print('    4. Dashboard:  dash = build_dashboard_shell(wb, "Title", "Subtitle")', flush=True)
-        print('    5. KPIs:       kpi_card(row=6, col=1, label="Metric", formula=\\'=SUM(Data!C:C)\\')', flush=True)
-        print('  Do NOT create a "Dashboard" sheet manually or with openpyxl.Workbook().create_sheet().', flush=True)
+        print('  CORRECT ORDER IN YOUR SCRIPT:', flush=True)
+        print('    1. ws_x = build_analysis_sheet(wb, "By Category", grouped_df)', flush=True)
+        print('    2. dash = build_dashboard_shell(wb, "Dashboard Title", "subtitle")', flush=True)
+        print('    3. kpi_card(row=6, col=1, label="Total", formula="=COUNTA(Data!A:A)-1")', flush=True)
+        print('    4. add_bar_chart(dash, ws_x, "Title", len(grouped_df), anchor="A11")', flush=True)
+        print('    5. wb.save(OUTPUT); write_result({"ok": True, "sheets": wb.sheetnames})', flush=True)
         return
-
-    # ── 3. Check for hardcoded KPI values on rows 6-8 ────────────────────
-    _formula_count = 0
-    _hardcoded = []
-    for _row in DASH.iter_rows(min_row=6, max_row=8):
-        for _cell in _row:
-            _v = _cell.value
-            if _v is None: continue
-            if str(_v).startswith('='): _formula_count += 1
-            elif isinstance(_v, (int, float)): _hardcoded.append(f'{_cell.coordinate}={_v}')
-
-    if _hardcoded:
-        print(f'\\n[FRAMEWORK WARNING] {len(_hardcoded)} hardcoded KPI value(s) detected!', flush=True)
-        print(f'  Hardcoded cells: {_hardcoded[:6]}', flush=True)
-        print(f'  WRONG: kpi_card(..., formula=5002)', flush=True)
-        print(f'  RIGHT: kpi_card(..., formula=\\'=COUNTA(Data!A:A)-1\\')', flush=True)
-    elif _formula_count == 0:
-        print('\\n[FRAMEWORK WARNING] Dashboard rows 6-8 have ZERO Excel formulas!', flush=True)
-        print('  KPI values must be formula strings like formula=\\'=SUM(Data!C:C)\\'.', flush=True)
-        print('  NEVER pass hardcoded numbers.', flush=True)
+    _formulas = sum(1 for _row in DASH.iter_rows(min_row=6, max_row=8)
+                    for _c in _row if _c.value and str(_c.value).startswith('='))
+    _hard = [f'{_c.coordinate}={_c.value}' for _row in DASH.iter_rows(min_row=6, max_row=8)
+             for _c in _row if isinstance(_c.value, (int, float))]
+    if _hard:
+        print(f'\\n[FRAMEWORK WARNING] Hardcoded KPI values detected: {_hard[:4]}', flush=True)
+        print('  Use formula strings: kpi_card(..., formula="=SUM(Data!C:C)")', flush=True)
     else:
-        print(f'  Framework: Dashboard OK ({_formula_count} Excel formulas on KPI rows) ✓', flush=True)
+        print(f'  Framework: Dashboard OK — {_formulas} formula(s) on KPI rows ✓', flush=True)
 
 atexit.register(_framework_validate)
 
-# ── Save framework function fingerprints ─────────────────────────────────
-# _framework_validate() reads these at exit to detect accidental name shadowing.
-# Do NOT reassign any of these names in your script.
-import sys as _od_sys
-_od_sys._od_fns_ = {
-    'build_dashboard_shell': build_dashboard_shell,
-    'kpi_card': kpi_card,
-    'add_bar_chart': add_bar_chart,
-    'add_line_chart': add_line_chart,
-    'add_pie_chart': add_pie_chart,
-    'build_data_sheet': build_data_sheet,
-}
-del _od_sys
-
-print(f'=== OpenDesktop Dashboard Framework ===')
+# ── Auto-initialize wb and df ─────────────────────────────────────────────────
+print(f'=== OpenDesktop Dashboard Framework v2 ===')
 print(f'Source : {os.path.basename(SOURCE)}')
 print(f'Output : {os.path.basename(OUTPUT)}')
+print(f'Loading data...', flush=True)
+
+_src_ext = os.path.splitext(SOURCE)[1].lower()
+try:
+    if _src_ext == '.csv':
+        df = pd.read_csv(SOURCE)
+    elif _src_ext in ('.xlsx', '.xlsm'):
+        df = pd.read_excel(SOURCE, engine='openpyxl')
+    elif _src_ext == '.xls':
+        df = pd.read_excel(SOURCE)
+    else:
+        df = pd.read_csv(SOURCE)  # try CSV as fallback
+    print(f'  Loaded: {len(df)} rows x {len(df.columns)} cols', flush=True)
+except Exception as _load_err:
+    print(f'[FRAMEWORK ERROR] Failed to load data: {_load_err}', flush=True)
+    write_result({{'ok': False, 'error': f'Data load failed: {{_load_err}}'}})
+    sys.exit(1)
+
+wb = openpyxl.Workbook()
+build_data_sheet(wb, df)
+print(f'  Framework ready. wb and df are available.', flush=True)
 print()
+
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  AGENT SCRIPT STARTS HERE                                                  ║
+# ║  YOUR SCRIPT STARTS HERE                                                   ║
 # ║                                                                             ║
-# ║  EXACT SIGNATURES — copy these exactly, do not guess:                      ║
-# ║    wb = openpyxl.Workbook()                                                ║
-# ║    build_data_sheet(wb, df)          → Data sheet, styled headers          ║
-# ║    ws = wb.create_sheet('By Category')  → analysis sheet                  ║
-# ║    dash = build_dashboard_shell(wb, "Title", "Subtitle")  → Dashboard[0]  ║
-# ║    kpi_card(row=6, col=1, label='Revenue', formula='=SUM(Data!C:C)')       ║
-# ║    kpi_card(row=6, col=3, label='Count',   formula='=COUNTA(Data!A:A)-1')  ║
-# ║    add_bar_chart(dash, ws, "Title", n_rows, data_col=2, anchor='A11')      ║
-# ║    add_line_chart(dash, ws, "Title", n_rows, data_col=2, anchor='G11')     ║
-# ║    add_pie_chart(dash, ws, "Title", n_slices, anchor='A26')                ║
-# ║    style_analysis_header(ws, ['Cat','Revenue','Count'])                    ║
-# ║    safe_cell(ws, row, col)  → writable cell even if merged                 ║
+# ║  PRE-INITIALIZED — do NOT recreate:                                        ║
+# ║    wb   openpyxl.Workbook with the Data sheet already populated            ║
+# ║    df   pandas DataFrame with all source rows                              ║
 # ║                                                                             ║
-# ║  ⛔ FORBIDDEN VARIABLE NAMES (these are functions, NEVER use as strings):  ║
-# ║    build_dashboard_shell  kpi_card  add_bar_chart  add_line_chart          ║
-# ║    add_pie_chart  build_data_sheet  write_section_header  DASH             ║
-# ║  WRONG:   build_dashboard_shell = "Momentum Dashboard"  ← 'str not callable'║
-# ║  CORRECT: title = "Momentum Dashboard"                                     ║
-# ║           dash  = build_dashboard_shell(wb, title, "subtitle here")        ║
+# ║  WHAT YOUR SCRIPT MUST DO:                                                 ║
+# ║  1. Create analysis sheets (aggregated data for chart sources):            ║
+# ║       ws_x = build_analysis_sheet(wb, 'By Category', grouped_df)          ║
+# ║     — OR manually: ws = wb.create_sheet('Name'); populate cells           ║
+# ║  2. Build dashboard shell:                                                 ║
+# ║       dash = build_dashboard_shell(wb, 'Dashboard Title', 'Subtitle')     ║
+# ║  3. Add KPI cards (always use Excel formula strings, never numbers):       ║
+# ║       kpi_card(row=6, col=1, label='Total Trades', formula='=COUNTA(Data!A:A)-1')
+# ║       kpi_card(row=6, col=3, label='Net P&L', formula='=SUM(Data!K:K)')   ║
+# ║       kpi_card(row=6, col=5, label='Win Rate', formula='=COUNTIF(Data!O:O,"Yes")/(COUNTA(Data!A:A)-1)', fmt='0.0%')
+# ║  4. Add charts:                                                            ║
+# ║       add_bar_chart(dash, ws_x, 'Title', len(grouped_df), anchor='A11')   ║
+# ║       add_line_chart(dash, ws_x, 'Title', n_rows, anchor='G11')           ║
+# ║       add_pie_chart(dash, ws_x, 'Title', n_slices, anchor='A26')          ║
+# ║  5. Save and finish:                                                       ║
+# ║       wb.save(OUTPUT)                                                      ║
+# ║       write_result({'ok': True, 'sheets': wb.sheetnames, 'summary': '...'})
 # ║                                                                             ║
-# ║  ⛔ HARDCODED VALUES FORBIDDEN:                                            ║
-# ║  WRONG:   kpi_card(..., formula=5002)   ← hardcoded number                 ║
-# ║  CORRECT: kpi_card(..., formula='=COUNTA(Data!A:A)-1')                     ║
+# ║  AVAILABLE HELPERS:                                                        ║
+# ║    build_analysis_sheet(wb, name, df_agg)  — styled sheet from DataFrame  ║
+# ║    style_analysis_header(ws, ['Col1','Col2'])                              ║
+# ║    style_analysis_row(ws, row_num, n_cols)                                 ║
+# ║    safe_cell(ws, row, col)  — writable cell even if merged                ║
+# ║    set_col_width(ws)        — auto-fit all columns                        ║
+# ║    h('NAVY'), ft(12, bold=True), al(), brd()  — style primitives         ║
+# ║    COLORS dict, CHART_PALETTE list                                         ║
 # ║                                                                             ║
-# ║  ⛔ MERGEDCELL: never write to a cell that was already merged.              ║
-# ║    Use safe_cell(ws, row, col) to safely write near merged regions.         ║
-# ║                                                                             ║
-# ║  MANDATORY ORDER:                                                           ║
-# ║  1. df = pd.read_csv(SOURCE) or pd.read_excel(SOURCE)                      ║
-# ║  2. build_data_sheet(wb, df)                                                ║
-# ║  3. ws = wb.create_sheet('By Xxx'); populate analysis sheets               ║
-# ║  4. dash = build_dashboard_shell(wb, title, subtitle)  ← AFTER sheets      ║
-# ║  5. kpi_card(row=6, ...)  kpi_card(row=6, col=3, ...)  etc.                ║
-# ║  6. add_bar_chart / add_line_chart / add_pie_chart                          ║
-# ║  7. wb.save(OUTPUT); write_result({'ok': True, 'sheets': wb.sheetnames})   ║
+# ║  ⛔ NEVER DO:                                                              ║
+# ║    wb = openpyxl.Workbook()         ← already created                     ║
+# ║    df = pd.read_csv/excel(SOURCE)   ← already loaded                      ║
+# ║    build_data_sheet(wb, df)         ← already called                      ║
+# ║    build_dashboard_shell = "Title"  ← shadows function — never assign!    ║
+# ║    kpi_card(..., formula=5002)      ← hardcoded number — use '=SUM(...)'  ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 `;
 
@@ -3838,6 +3684,98 @@ sleep 3
 
       const stat = await fsp.stat(resolved);
       return `${append ? 'Appended' : 'Wrote'} ${rows.length} rows to ${resolved} (${(stat.size / 1024).toFixed(1)} KB)`;
+    },
+  },
+
+  // ── CSV → XLSX direct conversion ──────────────────────────────────────────
+  {
+    name: 'office_csv_to_xlsx',
+    category: 'office',
+    description: 'Convert an entire CSV file to an Excel (.xlsx) workbook. Reads ALL rows directly — no LLM context limit. Use this instead of office_read_csv + office_write_xlsx when the CSV has more than a few hundred rows. Applies smart type coercion (numbers stay numeric) and optional header formatting.',
+    params: ['source', 'output', 'sheetName', 'autoFormat', 'delimiter'],
+    permissionLevel: 'sensitive',
+    async execute({ source, output, sheetName = 'Data', autoFormat = true, delimiter }) {
+      if (!source) throw new Error('source (CSV path) is required');
+      if (!output) throw new Error('output (XLSX path) is required');
+
+      const resolvedSrc = resolvePath(source);
+      const resolvedOut = resolvePath(output);
+
+      const raw = await fsp.readFile(resolvedSrc, 'utf-8');
+
+      // Auto-detect delimiter
+      if (!delimiter) {
+        const sample = raw.slice(0, 2000);
+        const firstLine = sample.split('\n')[0] || '';
+        delimiter = firstLine.split('\t').length > firstLine.split(',').length ? '\t' : ',';
+      }
+
+      const rows = parseCSV(raw, delimiter);
+      if (rows.length === 0) throw new Error('CSV file is empty');
+
+      const headers = rows[0];
+      const dataRows = rows.slice(1);
+
+      // Coerce string values to the most specific JS type
+      const coerce = (val) => {
+        if (val === '' || val === null || val === undefined) return null;
+        if (val === 'true' || val === 'True') return true;
+        if (val === 'false' || val === 'False') return false;
+        const n = Number(val);
+        if (!isNaN(n) && val.trim() !== '' && !/^0\d/.test(val.trim())) return n;
+        return val;
+      };
+
+      const ExcelJS = require('exceljs');
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'OpenDesktop';
+      wb.modified = new Date();
+      const ws = wb.addWorksheet(sheetName);
+
+      // Write header row
+      ws.addRow(headers);
+
+      // Write all data rows with type coercion
+      for (const row of dataRows) {
+        ws.addRow(row.map((v) => coerce(v)));
+      }
+
+      if (autoFormat) {
+        // Style header row
+        const headerRow = ws.getRow(1);
+        headerRow.height = 22;
+        headerRow.eachCell((cell) => {
+          cell.font = { bold: true, name: 'Calibri', size: 11, color: { argb: 'FFFFFFFF' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } };
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          cell.border = { bottom: { style: 'medium', color: { argb: 'FF2E86AB' } } };
+        });
+
+        // Alternating row tint
+        for (let r = 2; r <= dataRows.length + 1; r += 2) {
+          ws.getRow(r).eachCell({ includeEmpty: false }, (cell) => {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBF4F9' } };
+          });
+        }
+
+        // Freeze header and auto-size columns (sample first 200 rows for speed)
+        ws.views = [{ state: 'frozen', ySplit: 1, xSplit: 0 }];
+        const sampleDepth = Math.min(rows.length, 201);
+        for (let ci = 0; ci < headers.length; ci++) {
+          let maxLen = String(headers[ci] || '').length;
+          for (let ri = 1; ri < sampleDepth; ri++) {
+            const len = String(rows[ri]?.[ci] ?? '').length;
+            if (len > maxLen) maxLen = len;
+          }
+          ws.getColumn(ci + 1).width = Math.min(Math.max(maxLen + 4, 8), 45);
+        }
+      }
+
+      await fsp.mkdir(path.dirname(resolvedOut), { recursive: true });
+      await wb.xlsx.writeFile(resolvedOut);
+
+      const stat = await fsp.stat(resolvedOut);
+      return `Converted ${dataRows.length} rows × ${headers.length} columns from ${path.basename(resolvedSrc)} → ${resolvedOut} (${(stat.size / 1024).toFixed(1)} KB)`;
     },
   },
 

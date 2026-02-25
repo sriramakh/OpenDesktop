@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronRight, Wrench, Bot, Sparkles,
   Terminal, Globe, FolderOpen, Cpu, RefreshCw, Eye,
   Paperclip, X as XIcon, Plug, HardDrive, Check,
-  Calendar, Mail, Layers,
+  Calendar, Mail, Layers, Bell,
 } from 'lucide-react';
 
 const api = window.api;
@@ -560,6 +560,20 @@ function MessageBubble({ message, activePersona }) {
         </div>
         <div className="max-w-[75%] bg-red-500/10 border border-red-500/20 rounded-2xl rounded-bl-md px-4 py-2.5">
           <p className="text-sm text-red-300">{message.content}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (message.role === 'reminder') {
+    return (
+      <div className="flex justify-center animate-slide-up my-1">
+        <div className="flex items-center gap-2.5 bg-amber-500/10 border border-amber-500/25 rounded-xl px-4 py-2.5 max-w-[80%]">
+          <Bell size={14} className="text-amber-400 shrink-0" />
+          <p className="text-sm text-amber-200">{message.content}</p>
+          <span className="text-[10px] text-amber-500/60 shrink-0 ml-1">
+            {new Date(message.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+          </span>
         </div>
       </div>
     );

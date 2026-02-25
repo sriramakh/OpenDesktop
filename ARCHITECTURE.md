@@ -57,11 +57,11 @@ OpenDesktop is a **local-first autonomous AI agent** that runs natively on macOS
 │  │              │    └── KeyStore (AES-256-GCM)                │  │
 │  │              └── PermissionManager (safe/sensitive/danger)  │  │
 │  │                                                            │  │
-│  │  ┌─── Tool Registry (72 tools) ────────────────────────┐  │  │
-│  │  │ Filesystem(11) │ Office(21) │ AppControl(6)         │  │  │
+│  │  ┌─── Tool Registry (75 tools) ────────────────────────┐  │  │
+│  │  │ Filesystem(13) │ Office(21) │ AppControl(6)         │  │  │
 │  │  │ Browser(5)     │ BrowserTabs(9) │ Search(4)         │  │  │
 │  │  │ System(6)      │ LLM(4)      │ Connectors(5)        │  │  │
-│  │  │ Content(1)                                          │  │  │
+│  │  │ Content(1)     │ Reminders(3)                       │  │  │
 │  │  └─────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
@@ -110,7 +110,8 @@ app.whenReady()
       → new AgentCore({ memory, permissions, context, toolRegistry, keyStore, emit })
       → memory.initialize()                // Create/open SQLite DB
       → keyStore.initialize()              // Decrypt .keystore.enc
-      → toolRegistry.registerBuiltinTools() // Load all 72 tools
+      → reminderService.init(userDataPath, emitFn) // JSON-backed reminder scheduler
+      → toolRegistry.registerBuiltinTools() // Load all 75 tools
   → createWindow()                          // BrowserWindow with vibrancy
   → setupIPC()                              // Register all IPC handlers
 ```
@@ -148,6 +149,7 @@ app.whenReady()
 | `agent:approval-request` | `{ requestId, taskId, action }` | Dangerous action needs user approval |
 | `agent:complete` | `{ taskId, status, summary, steps[] }` | Task finished |
 | `agent:error` | `{ taskId, error }` | Unrecoverable error |
+| `reminder:fired` | `{ id, message, firedAt }` | Reminder time reached — fires OS notification + chat card |
 
 ---
 
@@ -283,7 +285,7 @@ if ((propSchema.type === 'array' || propSchema.type === 'object') && typeof val 
 
 ### Provider Catalog (MODEL_CATALOG)
 
-10 providers, 80+ models:
+11 providers, 80+ models:
 
 | Provider | Key | Endpoint | Adapter | Models |
 |----------|-----|----------|---------|--------|
@@ -297,6 +299,7 @@ if ((propSchema.type === 'array' || propSchema.type === 'object') && typeof val 
 | **Groq** | Yes | `https://api.groq.com/openai` | OpenAI-compatible | 7 models |
 | **Together** | Yes | `https://api.together.xyz` | OpenAI-compatible | 7 models |
 | **Perplexity** | Yes | `https://api.perplexity.ai` | OpenAI-compatible | 5 Sonar models |
+| **MiniMax** | Yes | `https://api.minimax.io` | Anthropic-compatible (`/anthropic/v1/messages`) | 3 models (M2.5, M2, Text-01) |
 
 ### Internal Message Format
 
@@ -401,7 +404,7 @@ Every tool has a full JSON Schema definition with:
 
 ### Tool Categories
 
-#### Filesystem (11 tools) — `filesystem.js`
+#### Filesystem (13 tools) — `filesystem.js`
 
 | Tool | Permission | Description |
 |------|-----------|-------------|
@@ -416,6 +419,8 @@ Every tool has a full JSON Schema definition with:
 | `fs_tree` | safe | Indented tree view (max 300 entries) |
 | `fs_info` | safe | File/directory metadata (size, dates, permissions) |
 | `fs_organize` | dangerous | Classify files by extension into category folders (Images, Videos, Documents, etc.). Only moves files, never subdirectories. Supports dry-run and custom rules. |
+| `fs_undo` | sensitive | Restore a file to its pre-modification snapshot from this session (last 3 snapshots per file, stored in `~/.cache/opendesktop/snapshots/`). |
+| `fs_diff` | safe | Show a unified diff of a file vs its pre-modification snapshot from this session. |
 
 **Binary document extraction pipeline (`extractBinaryContent`):**
 
@@ -581,6 +586,21 @@ Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, A
 | `llm_summarize` | safe | Summarize text |
 | `llm_extract` | safe | Extract structured data from text |
 | `llm_code` | safe | Generate code |
+
+#### Reminders (3 tools) — `reminder-tools.js`
+
+| Tool | Permission | Description |
+|------|-----------|-------------|
+| `reminder_set` | safe | Set a reminder using natural language time ("in 30 minutes", "8pm", "tomorrow at 9am"). Fires native macOS notification and injects an amber chat card in the renderer. |
+| `reminder_list` | safe | List reminders filtered by status (pending/fired/cancelled/all). |
+| `reminder_cancel` | safe | Cancel a pending reminder by ID. |
+
+**Reminder service (`reminder-service.js`):**
+- Self-contained singleton — no SQLite dependency; persists to `{userData}/reminders.json`
+- In-memory `_reminders[]` array; 30-second polling loop via `setInterval`
+- `_fireReminder()`: marks `status='fired'` → saves JSON → `new Notification(...).show()` → `emitFn('reminder:fired', ...)` → window focus on notification click
+- Natural language parser handles: ISO 8601, relative ("in X minutes/hours"), clock times ("8pm", "8:30am"), named days ("friday at 6pm"), "noon", "midnight" — auto-advances past times to next day
+- Initialized in `main.js` before `registerBuiltinTools()` so `reminder-tools.js` can `require()` the module with state already set
 
 ---
 
@@ -803,7 +823,7 @@ User types message → handleSend()
 
 ### SettingsModal.jsx — Provider Configuration
 
-- **PROVIDER_META** — display metadata for all 10 providers (icon, color, description, docs URL)
+- **PROVIDER_META** — display metadata for all 11 providers (icon, color, description, docs URL)
 - **Provider card grid** — visual selector with active state highlighting
 - **Model dropdown** — filtered by selected provider, shows context window size
 - **API key management** — set/remove with masked display, links to provider docs
@@ -937,11 +957,12 @@ OpenDesktop/
 ├── src/main/                       # ═══ ELECTRON MAIN PROCESS ═══
 │   ├── main.js                     # App entry: window creation, IPC setup, agent init
 │   ├── preload.js                  # Context bridge: 30+ API methods exposed to renderer
+│   ├── reminder-service.js         # Self-contained reminder scheduler (JSON, 30s polling, OS notifications)
 │   │
 │   └── agent/                      # ═══ AGENT BACKEND ═══
 │       ├── core.js                 # AgentCore: orchestrator, auto-persona, system prompt
 │       ├── loop.js                 # AgentLoop: ReAct loop, tool execution, approval gating
-│       ├── llm.js                  # LLM client: 10 providers, 80+ models, 4 adapters
+│       ├── llm.js                  # LLM client: 11 providers, 80+ models, 4 adapters
 │       ├── memory.js               # MemorySystem: SQLite FTS5 + JSON fallback
 │       ├── permissions.js          # PermissionManager: 3-tier classification + patterns
 │       ├── personas.js             # PersonaManager: planner/executor/researcher/custom
@@ -951,8 +972,8 @@ OpenDesktop/
 │       │
 │       └── tools/                  # ═══ TOOL IMPLEMENTATIONS ═══
 │           ├── registry.js         # ToolRegistry: registration + provider-specific schemas
-│           ├── tool-schemas.js     # JSON Schema definitions for all 72 tools
-│           ├── filesystem.js       # 11 tools: read, write, edit, list, search, move, organize...
+│           ├── tool-schemas.js     # JSON Schema definitions for all 75 tools
+│           ├── filesystem.js       # 13 tools: read, write, edit, list, search, move, organize, undo, diff...
 │           ├── office.js           # 21 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), Dashboards, VBA, PPTX (pptxgenjs), CSV
 │           ├── connectors.js       # 5 tools: Google Drive, Gmail, Calendar integration
 │           ├── app-control.js      # 6 tools: open (fuzzy), find, list, focus, quit, screenshot
@@ -960,6 +981,7 @@ OpenDesktop/
 │           ├── browser-tabs.js     # 9 tools: browser tab listing/navigation, cleanup, reading, forms, and JS
 │           ├── search-fetch.js     # 4 tools: web_search, web_fetch, web_fetch_json, web_download
 │           ├── content-tools.js    # 1 tool: summarize web articles, audio, video
+│           ├── reminder-tools.js   # 3 tools: reminder_set, reminder_list, reminder_cancel
 │           ├── system.js           # 6 tools: exec, info, processes, clipboard, notify
 │           └── llm-tools.js        # 4 tools: query, summarize, extract, code
 │

@@ -51,15 +51,25 @@ Think out loud. Choose:
 
 ### Step 3 — WRITE THE PYTHON SCRIPT
 
-Write the script using the template in Section 3. The framework pre-injects:
-- `SOURCE`, `OUTPUT`, `write_result()`, all error hooks
-- `pandas as pd`, `openpyxl`, all openpyxl submodules
-- **All styling helpers**: `COLORS`, `CHART_PALETTE`, `h()`, `ft()`, `al()`, `brd()`, `set_col_width()`
-- **All layout helpers**: `kpi_card()`, `write_section_header()`, `build_data_sheet()`, `build_dashboard_shell()`
-- **All chart helpers**: `add_bar_chart()`, `add_line_chart()`, `add_pie_chart()`
-- **Analysis helpers**: `style_analysis_header()`, `style_analysis_row()`
+The framework **pre-initializes everything** before your script runs:
+- `wb` — openpyxl.Workbook, already has the Data sheet populated from SOURCE
+- `df` — pandas DataFrame with all source rows already loaded
+- All imports: `pandas as pd`, `numpy as np`, `openpyxl`, all openpyxl submodules
+- All styling helpers: `COLORS`, `CHART_PALETTE`, `h()`, `ft()`, `al()`, `brd()`, `set_col_width()`
+- All layout helpers: `kpi_card()`, `write_section_header()`, `build_dashboard_shell()`
+- All chart helpers: `add_bar_chart()`, `add_line_chart()`, `add_pie_chart()`
+- Analysis helpers: `build_analysis_sheet()`, `style_analysis_header()`, `style_analysis_row()`, `safe_cell()`
 
-**DO NOT redefine any of the above.** Your script only provides the data-specific logic.
+**Your script must NOT:**
+- Create `wb = openpyxl.Workbook()` — already done
+- Load `df = pd.read_csv/excel(SOURCE)` — already done
+- Call `build_data_sheet(wb, df)` — already done
+
+**Your script must:**
+1. Create analysis sheets
+2. Call `build_dashboard_shell(wb, title, subtitle)`
+3. Add KPI cards and charts
+4. Call `wb.save(OUTPUT)` + `write_result({'ok': True, ...})`
 
 ### Step 4 — EXECUTE
 
@@ -97,193 +107,127 @@ After success, tell the user:
 
 ## Section 3: Complete Python Script Template
 
-> **The framework injects all imports and helpers automatically.**
-> Your script must NOT redefine: `SOURCE`, `OUTPUT`, `write_result()`, `COLORS`, `CHART_PALETTE`,
-> `h()`, `ft()`, `al()`, `brd()`, `set_col_width()`, `kpi_card()`, `write_section_header()`,
-> `build_data_sheet()`, `build_dashboard_shell()`, `add_bar_chart()`, `add_line_chart()`,
-> `add_pie_chart()`, `style_analysis_header()`, `style_analysis_row()`,
-> or any `import pandas`, `import openpyxl`, etc.
->
-> Your script starts immediately after the framework — just write the data logic.
+> **`wb`, `df`, and the Data sheet are PRE-INITIALIZED by the framework.**
+> Do NOT write `wb = openpyxl.Workbook()`, `df = pd.read_csv(SOURCE)`, or `build_data_sheet(wb, df)`.
+> Your script starts at step D (dimension setup) and ends at step H (save + write_result).
 
 ```python
-# ── C. Data loading ───────────────────────────────────────────────────────────
+# ── D. Dimensions — collect unique values for analysis sheets ─────────────────
+# df and wb are pre-initialized. df has all rows from SOURCE.
 try:
-    if SOURCE.lower().endswith('.csv'):
-        df = pd.read_csv(SOURCE)
-    else:
-        df = pd.read_excel(SOURCE)
-
-    # ← CUSTOMIZE: parse known date columns by name (safer than auto-detect)
-    for col_name in ['Date', 'OrderDate', 'Entry_Date']:   # ← replace with actual names
-        if col_name in df.columns:
-            df[col_name] = pd.to_datetime(df[col_name], errors='coerce')
-
     N = len(df)
+
+    # ← CUSTOMIZE: replace with your actual column names from the data exploration
+    CATEGORY_COL = 'Exit_Reason'   # text column with < 50 unique values
+    VALUE_COL    = 'Net_PnL'       # primary numeric column
+    DATE_COL     = 'Entry_Date'    # date column (or None if no dates)
+
+    # Parse dates if not already parsed
+    if DATE_COL and DATE_COL in df.columns:
+        df[DATE_COL] = pd.to_datetime(df[DATE_COL], errors='coerce')
+
     date_cols = df.select_dtypes(include='datetime').columns.tolist()
     num_cols  = df.select_dtypes(include='number').columns.tolist()
-    cat_cols  = [c for c in df.select_dtypes(include='object').columns if df[c].nunique() < 50]
 
-    print(f'Loaded {N} rows | date: {date_cols} | num: {num_cols[:4]} | cat: {cat_cols[:4]}')
-
-except Exception as e:
-    write_result({'ok': False, 'error': f'Data load failed: {e}'}); sys.exit(1)
-
-# ── D. Dimensions — collect unique values for analysis sheets ─────────────────
-try:
-    # ← CUSTOMIZE: replace with your actual column names
-    CATEGORY_COL = cat_cols[0] if cat_cols else None   # e.g. 'Category', 'Region'
-    VALUE_COL    = num_cols[0] if num_cols else None    # e.g. 'Revenue', 'Net_PnL'
-    DATE_COL     = date_cols[0] if date_cols else None  # e.g. 'Date', 'Entry_Date'
-
-    categories = []
+    categories = sorted(df[CATEGORY_COL].dropna().unique().tolist()) if CATEGORY_COL else []
     months = []
-
-    if CATEGORY_COL:
-        categories = sorted(df[CATEGORY_COL].dropna().unique().tolist())
-
-    if DATE_COL:
+    if DATE_COL and DATE_COL in df.columns:
         df['_Month'] = df[DATE_COL].dt.to_period('M').astype(str)
         months = sorted(df['_Month'].dropna().unique().tolist())
 
     # Dynamic column letters — NEVER hardcode 'B', 'C' etc.
     VALUE_LETTER    = get_column_letter(df.columns.get_loc(VALUE_COL) + 1)    if VALUE_COL    else 'B'
     CATEGORY_LETTER = get_column_letter(df.columns.get_loc(CATEGORY_COL) + 1) if CATEGORY_COL else 'A'
-    MONTH_LETTER    = get_column_letter(len(df.columns))  # _Month appended last
 
-    print(f'  Categories ({CATEGORY_COL}): {len(categories)} | Months: {len(months)}')
-    print(f'  Column letters — value:{VALUE_LETTER} category:{CATEGORY_LETTER} month:{MONTH_LETTER}')
+    print(f'  N={N} | categories={len(categories)} | months={len(months)}')
 
 except Exception as e:
     write_result({'ok': False, 'error': f'Dimension setup failed: {e}'}); sys.exit(1)
 
-# ── E. Data sheet — one call, always GOLD STANDARD styling ───────────────────
+# ── E. Analysis sheets — MUST be created BEFORE the Dashboard ────────────────
+# Option A: build_analysis_sheet() — one call from a DataFrame (recommended)
 try:
-    wb = openpyxl.Workbook()
-    # ← CUSTOMIZE: list numeric columns you want Red→White→Green color scale on
-    data_ws = build_data_sheet(wb, df, colorscale_cols=[VALUE_COL] if VALUE_COL else [])
+    # Example: group by exit reason → Net PnL + count
+    by_exit = df.groupby(CATEGORY_COL)[VALUE_COL].agg(['sum', 'count']).reset_index()
+    by_exit.columns = [CATEGORY_COL, f'Total {VALUE_COL}', 'Count']
+    ws_exit = build_analysis_sheet(wb, 'By Exit Reason', by_exit, color_key='NAVY')
+
+    # Example: monthly aggregation
+    if months:
+        by_month = df.groupby('_Month')[VALUE_COL].agg(['sum', 'count']).reset_index()
+        by_month.columns = ['Month', f'Total {VALUE_COL}', 'Trades']
+        ws_month = build_analysis_sheet(wb, 'By Month', by_month, color_key='TEAL')
+
 except Exception as e:
-    write_result({'ok': False, 'error': f'Data sheet failed: {e}'}); sys.exit(1)
+    write_result({'ok': False, 'error': f'Analysis sheets failed: {e}'}); sys.exit(1)
 
-# ── F. Analysis sheets — MUST be created BEFORE the Dashboard ─────────────────
+# Option B: manual with SUMIF formulas (use when you need live Excel formulas in analysis sheets)
+# try:
+#     ws_sym = wb.create_sheet('By Symbol')
+#     symbols = sorted(df['Symbol'].dropna().unique())
+#     SYM_COL = get_column_letter(df.columns.get_loc('Symbol') + 1)
+#     style_analysis_header(ws_sym, ['Symbol', f'Total {VALUE_COL}', 'Count'])
+#     for r, sym in enumerate(symbols, 2):
+#         ws_sym.cell(r, 1, sym)
+#         ws_sym.cell(r, 2).value = f'=SUMIF(Data!{SYM_COL}:{SYM_COL},A{r},Data!{VALUE_LETTER}:{VALUE_LETTER})'
+#         ws_sym.cell(r, 3).value = f'=COUNTIF(Data!{SYM_COL}:{SYM_COL},A{r})'
+#         style_analysis_row(ws_sym, r, 3)
+#     set_col_width(ws_sym)
+# except Exception as e:
+#     write_result({'ok': False, 'error': f'By Symbol failed: {e}'}); sys.exit(1)
 
-# ── F1. By Category ──────────────────────────────────────────────────────────
-if CATEGORY_COL and VALUE_COL and categories:
-    try:
-        anal = wb.create_sheet('By Category')
-        headers = [CATEGORY_COL, f'Total {VALUE_COL}', 'Count', f'Avg {VALUE_COL}']
-        style_analysis_header(anal, headers, color_key='NAVY')
-
-        for r, cat in enumerate(categories, 2):
-            anal.cell(r, 1, cat)
-            anal.cell(r, 2).value = f'=SUMIF(Data!{CATEGORY_LETTER}:{CATEGORY_LETTER},A{r},Data!{VALUE_LETTER}:{VALUE_LETTER})'
-            anal.cell(r, 2).number_format = '#,##0.00'
-            anal.cell(r, 3).value = f'=COUNTIF(Data!{CATEGORY_LETTER}:{CATEGORY_LETTER},A{r})'
-            anal.cell(r, 3).number_format = '#,##0'
-            anal.cell(r, 4).value = f'=IFERROR(B{r}/C{r},0)'
-            anal.cell(r, 4).number_format = '#,##0.00'
-            style_analysis_row(anal, r, 4)
-
-        set_col_width(anal)
-        print(f'  By Category: {len(categories)} categories')
-
-    except Exception as e:
-        write_result({'ok': False, 'error': f'By Category failed: {e}'}); sys.exit(1)
-
-# ── F2. By Month ──────────────────────────────────────────────────────────────
-if DATE_COL and VALUE_COL and months:
-    try:
-        time_ws = wb.create_sheet('By Month')
-        headers = ['Month', f'Total {VALUE_COL}', 'Count']
-        style_analysis_header(time_ws, headers, color_key='TEAL')
-
-        for r, month_str in enumerate(months, 2):
-            time_ws.cell(r, 1, month_str)
-            time_ws.cell(r, 2).value = f'=SUMIF(Data!{MONTH_LETTER}:{MONTH_LETTER},A{r},Data!{VALUE_LETTER}:{VALUE_LETTER})'
-            time_ws.cell(r, 2).number_format = '#,##0.00'
-            time_ws.cell(r, 3).value = f'=COUNTIF(Data!{MONTH_LETTER}:{MONTH_LETTER},A{r})'
-            time_ws.cell(r, 3).number_format = '#,##0'
-            style_analysis_row(time_ws, r, 3, alt_color='ECFDF5')
-
-        set_col_width(time_ws)
-        print(f'  By Month: {len(months)} months')
-
-    except Exception as e:
-        write_result({'ok': False, 'error': f'By Month failed: {e}'}); sys.exit(1)
-
-# ── G. Dashboard sheet ────────────────────────────────────────────────────────
+# ── F. Dashboard sheet ────────────────────────────────────────────────────────
 try:
-    # ← CUSTOMIZE: title and subtitle
-    date_range = ''
-    if DATE_COL and len(df) > 0:
-        mn, mx = df[DATE_COL].min(), df[DATE_COL].max()
-        if pd.notna(mn): date_range = f'  |  {mn.strftime("%b %Y")} – {mx.strftime("%b %Y")}'
+    title    = 'PERFORMANCE DASHBOARD'    # ← CUSTOMIZE
+    subtitle = f'  {N:,} records | Generated {datetime.today().strftime("%B %d, %Y")}'
 
-    dash = build_dashboard_shell(
-        wb,
-        title    = 'PERFORMANCE DASHBOARD',   # ← CUSTOMIZE
-        subtitle = f'  {N:,} records analyzed{date_range}  |  Generated {datetime.today().strftime("%B %d, %Y")}'
-    )
-    # CHART_ROW = 11 is pre-defined — do NOT use a variable, use the constant directly
+    dash = build_dashboard_shell(wb, title, subtitle)
 
-    # ── G1. KPI cards (row 6, each 3 columns wide → 4 cards fill 12 cols) ────
-    # ← CUSTOMIZE: adapt labels and formulas to your data
-    kpi_card(dash, row=6, col=1,  label='Total Records',
+    # KPI cards — row 6, each 3 columns wide (4 cards × 3 cols = 12 cols)
+    kpi_card(row=6, col=1,  label='Total Trades',
              formula='=COUNTA(Data!A:A)-1', fmt='#,##0', n_cols=3)
-
-    kpi_card(dash, row=6, col=4,  label=f'Total {VALUE_COL or "Value"}',
+    kpi_card(row=6, col=4,  label=f'Total {VALUE_COL}',
              formula=f'=SUM(Data!{VALUE_LETTER}:{VALUE_LETTER})',
              fmt='#,##0.00', n_cols=3)
-
-    kpi_card(dash, row=6, col=7,  label=f'Average {VALUE_COL or "Value"}',
+    kpi_card(row=6, col=7,  label='Win Rate',
+             formula='=IFERROR(COUNTIF(Data!O:O,"Yes")/(COUNTA(Data!A:A)-1),0)',
+             fmt='0.0%', n_cols=3)
+    kpi_card(row=6, col=10, label=f'Avg {VALUE_COL}',
              formula=f'=IFERROR(AVERAGE(Data!{VALUE_LETTER}:{VALUE_LETTER}),0)',
              fmt='#,##0.00', n_cols=3)
 
-    kpi_card(dash, row=6, col=10, label=f'Max {VALUE_COL or "Value"}',
-             formula=f'=IFERROR(MAX(Data!{VALUE_LETTER}:{VALUE_LETTER}),0)',
-             fmt='#,##0.00', n_cols=3)
+    # Charts
+    add_bar_chart(dash, ws_exit,
+                  title=f'{VALUE_COL} by {CATEGORY_COL}',
+                  n_data_rows=len(by_exit),
+                  data_col=2, cat_col=1, anchor=f'A{CHART_ROW}',
+                  color=CHART_PALETTE[0])
 
-    # ── G2. Charts ────────────────────────────────────────────────────────────
-    # Bar chart: Category breakdown (left, row 11)
-    if categories and 'By Category' in [ws.title for ws in wb.worksheets]:
-        add_bar_chart(dash, wb['By Category'],
-                      title=f'{VALUE_COL} by {CATEGORY_COL}',
-                      n_data_rows=len(categories),
-                      data_col=2, cat_col=1,
-                      anchor=f'A{CHART_ROW}',
-                      color=CHART_PALETTE[0])
-
-    # Line chart: Monthly trend (right, row 11)
-    if months and 'By Month' in [ws.title for ws in wb.worksheets]:
-        add_line_chart(dash, wb['By Month'],
-                       title=f'{VALUE_COL or "Value"} Over Time',
-                       n_data_rows=len(months),
-                       data_col=2, cat_col=1,
-                       anchor=f'G{CHART_ROW}',
+    if months:
+        add_line_chart(dash, ws_month,
+                       title=f'{VALUE_COL} Over Time',
+                       n_data_rows=len(by_month),
+                       data_col=2, cat_col=1, anchor=f'G{CHART_ROW}',
                        color=CHART_PALETTE[2])
 
-    # Pie chart: Category share (left, row 26)
-    if categories and 'By Category' in [ws.title for ws in wb.worksheets]:
-        add_pie_chart(dash, wb['By Category'],
-                      title=f'Share of {VALUE_COL} by {CATEGORY_COL}',
-                      n_slices=len(categories),
-                      data_col=2, cat_col=1,
-                      anchor=f'A{CHART_ROW + 15}')
+    add_pie_chart(dash, ws_exit,
+                  title=f'Trade Count by {CATEGORY_COL}',
+                  n_slices=len(by_exit),
+                  data_col=3, cat_col=1, anchor=f'A{CHART_ROW + 15}')
 
     print('  Dashboard: done')
 
 except Exception as e:
     write_result({'ok': False, 'error': f'Dashboard failed: {e}'}); sys.exit(1)
 
-# ── H. Save + Report ──────────────────────────────────────────────────────────
+# ── G. Save + Report ──────────────────────────────────────────────────────────
 try:
     wb.save(OUTPUT)
-    sheet_names = [ws.title for ws in wb.worksheets]
     write_result({
-        'ok': True, 'saved': OUTPUT, 'sheets': sheet_names,
-        'summary': f'{N:,} rows | {len(sheet_names)} sheets | KPIs use live Excel formulas'
+        'ok': True,
+        'sheets': [ws.title for ws in wb.worksheets],
+        'summary': f'{N:,} rows | KPIs use live Excel formulas'
     })
-    print(f'Saved: {OUTPUT}  ({" → ".join(sheet_names)})')
 except Exception as e:
     write_result({'ok': False, 'error': f'Save failed: {e}'}); sys.exit(1)
 ```
@@ -292,10 +236,23 @@ except Exception as e:
 
 ## Section 4: Framework API Reference
 
-All of these are pre-injected. Use them directly — no import or redefinition needed.
+All of these are pre-injected. `wb` and `df` are also pre-initialized — do not recreate them.
+
+### Pre-initialized globals
+- `wb` — `openpyxl.Workbook` with the Data sheet already built from SOURCE
+- `df` — `pandas.DataFrame` with all source rows
+- `N = len(df)` — compute it yourself if needed
+
+### `build_analysis_sheet(wb, name, df_agg, color_key='BLUE')`
+**Preferred** way to create analysis sheets. Creates a styled sheet from a pandas DataFrame — handles header, alternating rows, column widths. Returns the worksheet.
+```python
+by_exit = df.groupby('Exit_Reason')['Net_PnL'].agg(['sum','count']).reset_index()
+by_exit.columns = ['Exit Reason', 'Net PnL', 'Count']
+ws = build_analysis_sheet(wb, 'By Exit Reason', by_exit)
+```
 
 ### `build_data_sheet(wb, df, colorscale_cols=[])`
-Creates a professional Data sheet on `wb.active`. Blue header, alternating rows, Excel Table, optional Red→White→Green color scale on numeric columns, frozen header, auto-widths. Returns the worksheet.
+Already called automatically. Do not call again.
 
 ### `build_dashboard_shell(wb, title, subtitle='')`
 Inserts Dashboard sheet at position 0. Adds navy title banner (rows 1-3), light subtitle (row 4), "KEY METRICS" section header (row 5), KPI rows 6-8 with correct heights, spacer row 9, "CHARTS & ANALYSIS" header (row 10). Sets the global `DASH` variable and **returns only the `dash` worksheet** (NOT a tuple). Charts always start at `CHART_ROW` (pre-defined as 11).
@@ -427,11 +384,13 @@ add_bar_chart(dash, wb['By Symbol'], title='Net PnL by Symbol',
 
 ### Additional rules:
 
-6. **DO NOT redefine framework helpers** — `COLORS`, `h()`, `ft()`, `kpi_card()`, `build_data_sheet()`,
+6. **DO NOT recreate wb or df** — already initialized. Do not call `openpyxl.Workbook()`, `pd.read_csv()`, or `build_data_sheet()`.
+
+7. **DO NOT redefine framework helpers** — `COLORS`, `h()`, `ft()`, `kpi_card()`, `build_analysis_sheet()`,
    `build_dashboard_shell()`, `add_bar_chart()`, `add_line_chart()`, `add_pie_chart()` etc. are all
    pre-injected. Using your own versions breaks the GOLD STANDARD formatting.
 
-7. **DO NOT re-import pandas or openpyxl** — already imported by the framework.
+8. **DO NOT re-import pandas or openpyxl** — already imported by the framework.
 
 8. **Use dynamic column letters** — never hardcode `'B'` or `'C'`. Always:
    ```python

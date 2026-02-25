@@ -1,5 +1,6 @@
 const fs = require('fs');
 const fsp = require('fs/promises');
+const os = require('os');
 const path = require('path');
 const { glob } = require('glob');
 const { exec } = require('child_process');
@@ -77,6 +78,34 @@ const BINARY_EXTENSIONS = {
   '.numbers': 'numbers',
   '.key': 'keynote',
 };
+
+// ---------------------------------------------------------------------------
+// Snapshot registry — session-scoped undo/diff for file mutations
+// ---------------------------------------------------------------------------
+
+const _snapshots = new Map(); // absolutePath -> [{timestamp, snapshotPath}]
+const SNAPSHOT_DIR = path.join(os.homedir(), '.cache', 'opendesktop', 'snapshots');
+
+async function snapshotFile(filePath) {
+  try {
+    const stat = await fsp.stat(filePath).catch(() => null);
+    if (!stat?.isFile() || stat.size > 5 * 1024 * 1024) return;
+    await fsp.mkdir(SNAPSHOT_DIR, { recursive: true });
+    const encoded = filePath.replace(/[^a-zA-Z0-9._-]/g, '-');
+    const snapshotPath = path.join(SNAPSHOT_DIR, `${Date.now()}_${encoded}.bak`);
+    await fsp.copyFile(filePath, snapshotPath);
+    if (!_snapshots.has(filePath)) _snapshots.set(filePath, []);
+    _snapshots.get(filePath).push({ timestamp: Date.now(), snapshotPath });
+    // Keep only last 3 snapshots per file
+    const snaps = _snapshots.get(filePath);
+    if (snaps.length > 3) {
+      const removed = snaps.splice(0, snaps.length - 3);
+      removed.forEach((r) => fsp.unlink(r.snapshotPath).catch(() => {}));
+    }
+  } catch (err) {
+    console.warn('[Snapshot]', filePath, err.message);
+  }
+}
 
 function shellExec(cmd, timeout = 30000) {
   return new Promise((resolve, reject) => {
@@ -404,6 +433,7 @@ const FilesystemTools = [
       const resolved = resolvePath(filePath);
       guardPath(resolved);
 
+      await snapshotFile(resolved);
       await fsp.mkdir(path.dirname(resolved), { recursive: true });
 
       if (append) {
@@ -427,6 +457,7 @@ const FilesystemTools = [
       const resolved = resolvePath(filePath);
       guardPath(resolved);
 
+      await snapshotFile(resolved);
       let content = await fsp.readFile(resolved, 'utf-8');
       const original = content;
 
@@ -555,6 +586,7 @@ const FilesystemTools = [
       const resolved = resolvePath(targetPath);
       guardPath(resolved);
 
+      await snapshotFile(resolved);
       const stat = await fsp.stat(resolved);
       if (stat.isDirectory()) {
         if (!recursive) throw new Error('Use recursive: true to delete directories');
@@ -876,6 +908,46 @@ const FilesystemTools = [
       }
 
       return lines.join('\n');
+    },
+  },
+
+  {
+    name: 'fs_undo',
+    category: 'filesystem',
+    permissionLevel: 'sensitive',
+    description: 'Restore a file to its pre-modification state from this session. Uses the snapshot taken automatically before the last fs_write, fs_edit, or fs_delete.',
+    params: ['path'],
+    async execute({ path: filePath }) {
+      const resolved = resolvePath(filePath);
+      const snaps = _snapshots.get(resolved);
+      if (!snaps?.length) throw new Error(`No snapshot available for: ${resolved}`);
+      const last = snaps.pop();
+      await fsp.copyFile(last.snapshotPath, resolved);
+      await fsp.unlink(last.snapshotPath).catch(() => {});
+      return `Restored ${resolved} to snapshot from ${new Date(last.timestamp).toLocaleTimeString()}`;
+    },
+  },
+
+  {
+    name: 'fs_diff',
+    category: 'filesystem',
+    permissionLevel: 'safe',
+    description: 'Show what changed in a file vs its pre-modification snapshot from this session. Returns a unified diff.',
+    params: ['path'],
+    async execute({ path: filePath }) {
+      const resolved = resolvePath(filePath);
+      const snaps = _snapshots.get(resolved);
+      if (!snaps?.length) throw new Error(`No snapshot available for: ${resolved}`);
+      const last = snaps[snaps.length - 1];
+      try {
+        return await shellExec(`diff -u "${last.snapshotPath}" "${resolved}" || true`);
+      } catch {
+        const [before, after] = await Promise.all([
+          fsp.readFile(last.snapshotPath, 'utf-8').catch(() => '(unreadable)'),
+          fsp.readFile(resolved, 'utf-8').catch(() => '(deleted)'),
+        ]);
+        return `Before:\n${before.slice(0, 2000)}\n\nAfter:\n${after.slice(0, 2000)}`;
+      }
     },
   },
 ];
