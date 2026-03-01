@@ -1,0 +1,752 @@
+{
+  "version": "1.0",
+  "total_icons": 144,
+  "categories": {
+    "business": [
+      {
+        "name": "briefcase",
+        "file": "business/briefcase.png",
+        "exists": true
+      },
+      {
+        "name": "handshake",
+        "file": "business/handshake.png",
+        "exists": true
+      },
+      {
+        "name": "building",
+        "file": "business/building.png",
+        "exists": true
+      },
+      {
+        "name": "presentation",
+        "file": "business/presentation.png",
+        "exists": true
+      },
+      {
+        "name": "strategy",
+        "file": "business/strategy.png",
+        "exists": true
+      },
+      {
+        "name": "target",
+        "file": "business/target.png",
+        "exists": true
+      },
+      {
+        "name": "growth",
+        "file": "business/growth.png",
+        "exists": true
+      },
+      {
+        "name": "partnership",
+        "file": "business/partnership.png",
+        "exists": true
+      },
+      {
+        "name": "meeting",
+        "file": "business/meeting.png",
+        "exists": true
+      },
+      {
+        "name": "contract",
+        "file": "business/contract.png",
+        "exists": true
+      },
+      {
+        "name": "leadership",
+        "file": "business/leadership.png",
+        "exists": true
+      },
+      {
+        "name": "innovation",
+        "file": "business/innovation.png",
+        "exists": true
+      }
+    ],
+    "technology": [
+      {
+        "name": "computer",
+        "file": "technology/computer.png",
+        "exists": true
+      },
+      {
+        "name": "cloud",
+        "file": "technology/cloud.png",
+        "exists": true
+      },
+      {
+        "name": "database",
+        "file": "technology/database.png",
+        "exists": true
+      },
+      {
+        "name": "network",
+        "file": "technology/network.png",
+        "exists": true
+      },
+      {
+        "name": "security-shield",
+        "file": "technology/security-shield.png",
+        "exists": true
+      },
+      {
+        "name": "mobile",
+        "file": "technology/mobile.png",
+        "exists": true
+      },
+      {
+        "name": "code",
+        "file": "technology/code.png",
+        "exists": true
+      },
+      {
+        "name": "ai-brain",
+        "file": "technology/ai-brain.png",
+        "exists": true
+      },
+      {
+        "name": "server",
+        "file": "technology/server.png",
+        "exists": true
+      },
+      {
+        "name": "iot-device",
+        "file": "technology/iot-device.png",
+        "exists": true
+      },
+      {
+        "name": "circuit",
+        "file": "technology/circuit.png",
+        "exists": true
+      },
+      {
+        "name": "robot",
+        "file": "technology/robot.png",
+        "exists": true
+      }
+    ],
+    "finance": [
+      {
+        "name": "dollar",
+        "file": "finance/dollar.png",
+        "exists": true
+      },
+      {
+        "name": "chart-up",
+        "file": "finance/chart-up.png",
+        "exists": true
+      },
+      {
+        "name": "wallet",
+        "file": "finance/wallet.png",
+        "exists": true
+      },
+      {
+        "name": "bank",
+        "file": "finance/bank.png",
+        "exists": true
+      },
+      {
+        "name": "calculator",
+        "file": "finance/calculator.png",
+        "exists": true
+      },
+      {
+        "name": "invoice",
+        "file": "finance/invoice.png",
+        "exists": true
+      },
+      {
+        "name": "piggy-bank",
+        "file": "finance/piggy-bank.png",
+        "exists": true
+      },
+      {
+        "name": "credit-card",
+        "file": "finance/credit-card.png",
+        "exists": true
+      },
+      {
+        "name": "coins",
+        "file": "finance/coins.png",
+        "exists": true
+      },
+      {
+        "name": "stock-market",
+        "file": "finance/stock-market.png",
+        "exists": true
+      },
+      {
+        "name": "budget",
+        "file": "finance/budget.png",
+        "exists": true
+      },
+      {
+        "name": "audit",
+        "file": "finance/audit.png",
+        "exists": true
+      }
+    ],
+    "healthcare": [
+      {
+        "name": "heart",
+        "file": "healthcare/heart.png",
+        "exists": true
+      },
+      {
+        "name": "stethoscope",
+        "file": "healthcare/stethoscope.png",
+        "exists": true
+      },
+      {
+        "name": "hospital",
+        "file": "healthcare/hospital.png",
+        "exists": true
+      },
+      {
+        "name": "pill",
+        "file": "healthcare/pill.png",
+        "exists": true
+      },
+      {
+        "name": "microscope",
+        "file": "healthcare/microscope.png",
+        "exists": true
+      },
+      {
+        "name": "dna",
+        "file": "healthcare/dna.png",
+        "exists": true
+      },
+      {
+        "name": "ambulance",
+        "file": "healthcare/ambulance.png",
+        "exists": true
+      },
+      {
+        "name": "first-aid",
+        "file": "healthcare/first-aid.png",
+        "exists": true
+      },
+      {
+        "name": "brain-health",
+        "file": "healthcare/brain-health.png",
+        "exists": true
+      },
+      {
+        "name": "lungs",
+        "file": "healthcare/lungs.png",
+        "exists": true
+      },
+      {
+        "name": "blood-drop",
+        "file": "healthcare/blood-drop.png",
+        "exists": true
+      },
+      {
+        "name": "vaccine",
+        "file": "healthcare/vaccine.png",
+        "exists": true
+      }
+    ],
+    "education": [
+      {
+        "name": "book",
+        "file": "education/book.png",
+        "exists": true
+      },
+      {
+        "name": "graduation-cap",
+        "file": "education/graduation-cap.png",
+        "exists": true
+      },
+      {
+        "name": "pencil",
+        "file": "education/pencil.png",
+        "exists": true
+      },
+      {
+        "name": "globe",
+        "file": "education/globe.png",
+        "exists": true
+      },
+      {
+        "name": "lightbulb",
+        "file": "education/lightbulb.png",
+        "exists": true
+      },
+      {
+        "name": "chemistry",
+        "file": "education/chemistry.png",
+        "exists": true
+      },
+      {
+        "name": "atom",
+        "file": "education/atom.png",
+        "exists": true
+      },
+      {
+        "name": "telescope",
+        "file": "education/telescope.png",
+        "exists": true
+      },
+      {
+        "name": "library",
+        "file": "education/library.png",
+        "exists": true
+      },
+      {
+        "name": "certificate",
+        "file": "education/certificate.png",
+        "exists": true
+      },
+      {
+        "name": "chalkboard",
+        "file": "education/chalkboard.png",
+        "exists": true
+      },
+      {
+        "name": "backpack",
+        "file": "education/backpack.png",
+        "exists": true
+      }
+    ],
+    "sustainability": [
+      {
+        "name": "leaf",
+        "file": "sustainability/leaf.png",
+        "exists": true
+      },
+      {
+        "name": "solar-panel",
+        "file": "sustainability/solar-panel.png",
+        "exists": true
+      },
+      {
+        "name": "wind-turbine",
+        "file": "sustainability/wind-turbine.png",
+        "exists": true
+      },
+      {
+        "name": "recycle",
+        "file": "sustainability/recycle.png",
+        "exists": true
+      },
+      {
+        "name": "earth",
+        "file": "sustainability/earth.png",
+        "exists": true
+      },
+      {
+        "name": "water-drop",
+        "file": "sustainability/water-drop.png",
+        "exists": true
+      },
+      {
+        "name": "electric-car",
+        "file": "sustainability/electric-car.png",
+        "exists": true
+      },
+      {
+        "name": "tree",
+        "file": "sustainability/tree.png",
+        "exists": true
+      },
+      {
+        "name": "green-energy",
+        "file": "sustainability/green-energy.png",
+        "exists": true
+      },
+      {
+        "name": "eco-house",
+        "file": "sustainability/eco-house.png",
+        "exists": true
+      }
+    ],
+    "communication": [
+      {
+        "name": "email",
+        "file": "communication/email.png",
+        "exists": true
+      },
+      {
+        "name": "chat-bubble",
+        "file": "communication/chat-bubble.png",
+        "exists": true
+      },
+      {
+        "name": "phone",
+        "file": "communication/phone.png",
+        "exists": true
+      },
+      {
+        "name": "megaphone",
+        "file": "communication/megaphone.png",
+        "exists": true
+      },
+      {
+        "name": "video-call",
+        "file": "communication/video-call.png",
+        "exists": true
+      },
+      {
+        "name": "satellite",
+        "file": "communication/satellite.png",
+        "exists": true
+      },
+      {
+        "name": "antenna",
+        "file": "communication/antenna.png",
+        "exists": true
+      },
+      {
+        "name": "social-media",
+        "file": "communication/social-media.png",
+        "exists": true
+      },
+      {
+        "name": "podcast",
+        "file": "communication/podcast.png",
+        "exists": true
+      },
+      {
+        "name": "newsletter",
+        "file": "communication/newsletter.png",
+        "exists": true
+      }
+    ],
+    "people": [
+      {
+        "name": "person",
+        "file": "people/person.png",
+        "exists": true
+      },
+      {
+        "name": "team",
+        "file": "people/team.png",
+        "exists": true
+      },
+      {
+        "name": "community",
+        "file": "people/community.png",
+        "exists": true
+      },
+      {
+        "name": "diversity",
+        "file": "people/diversity.png",
+        "exists": true
+      },
+      {
+        "name": "family",
+        "file": "people/family.png",
+        "exists": true
+      },
+      {
+        "name": "mentor",
+        "file": "people/mentor.png",
+        "exists": true
+      },
+      {
+        "name": "volunteer",
+        "file": "people/volunteer.png",
+        "exists": true
+      },
+      {
+        "name": "customer",
+        "file": "people/customer.png",
+        "exists": true
+      },
+      {
+        "name": "employee",
+        "file": "people/employee.png",
+        "exists": true
+      },
+      {
+        "name": "speaker",
+        "file": "people/speaker.png",
+        "exists": true
+      },
+      {
+        "name": "athlete",
+        "file": "people/athlete.png",
+        "exists": true
+      },
+      {
+        "name": "scientist",
+        "file": "people/scientist.png",
+        "exists": true
+      }
+    ],
+    "analytics": [
+      {
+        "name": "bar-chart",
+        "file": "analytics/bar-chart.png",
+        "exists": true
+      },
+      {
+        "name": "pie-chart",
+        "file": "analytics/pie-chart.png",
+        "exists": true
+      },
+      {
+        "name": "line-graph",
+        "file": "analytics/line-graph.png",
+        "exists": true
+      },
+      {
+        "name": "dashboard",
+        "file": "analytics/dashboard.png",
+        "exists": true
+      },
+      {
+        "name": "funnel",
+        "file": "analytics/funnel.png",
+        "exists": true
+      },
+      {
+        "name": "gauge",
+        "file": "analytics/gauge.png",
+        "exists": true
+      },
+      {
+        "name": "magnifying-glass",
+        "file": "analytics/magnifying-glass.png",
+        "exists": true
+      },
+      {
+        "name": "data-flow",
+        "file": "analytics/data-flow.png",
+        "exists": true
+      },
+      {
+        "name": "statistics",
+        "file": "analytics/statistics.png",
+        "exists": true
+      },
+      {
+        "name": "report",
+        "file": "analytics/report.png",
+        "exists": true
+      },
+      {
+        "name": "heatmap",
+        "file": "analytics/heatmap.png",
+        "exists": true
+      },
+      {
+        "name": "scatter-plot",
+        "file": "analytics/scatter-plot.png",
+        "exists": true
+      }
+    ],
+    "logistics": [
+      {
+        "name": "truck",
+        "file": "logistics/truck.png",
+        "exists": true
+      },
+      {
+        "name": "warehouse",
+        "file": "logistics/warehouse.png",
+        "exists": true
+      },
+      {
+        "name": "shipping",
+        "file": "logistics/shipping.png",
+        "exists": true
+      },
+      {
+        "name": "airplane",
+        "file": "logistics/airplane.png",
+        "exists": true
+      },
+      {
+        "name": "train",
+        "file": "logistics/train.png",
+        "exists": true
+      },
+      {
+        "name": "package",
+        "file": "logistics/package.png",
+        "exists": true
+      },
+      {
+        "name": "supply-chain",
+        "file": "logistics/supply-chain.png",
+        "exists": true
+      },
+      {
+        "name": "forklift",
+        "file": "logistics/forklift.png",
+        "exists": true
+      },
+      {
+        "name": "container",
+        "file": "logistics/container.png",
+        "exists": true
+      },
+      {
+        "name": "delivery",
+        "file": "logistics/delivery.png",
+        "exists": true
+      }
+    ],
+    "security": [
+      {
+        "name": "lock",
+        "file": "security/lock.png",
+        "exists": true
+      },
+      {
+        "name": "key",
+        "file": "security/key.png",
+        "exists": true
+      },
+      {
+        "name": "firewall",
+        "file": "security/firewall.png",
+        "exists": true
+      },
+      {
+        "name": "eye",
+        "file": "security/eye.png",
+        "exists": true
+      },
+      {
+        "name": "fingerprint",
+        "file": "security/fingerprint.png",
+        "exists": true
+      },
+      {
+        "name": "shield-check",
+        "file": "security/shield-check.png",
+        "exists": true
+      },
+      {
+        "name": "camera",
+        "file": "security/camera.png",
+        "exists": true
+      },
+      {
+        "name": "alarm",
+        "file": "security/alarm.png",
+        "exists": true
+      },
+      {
+        "name": "vpn",
+        "file": "security/vpn.png",
+        "exists": true
+      },
+      {
+        "name": "encryption",
+        "file": "security/encryption.png",
+        "exists": true
+      }
+    ],
+    "creative": [
+      {
+        "name": "palette",
+        "file": "creative/palette.png",
+        "exists": true
+      },
+      {
+        "name": "camera-creative",
+        "file": "creative/camera-creative.png",
+        "exists": true
+      },
+      {
+        "name": "music-note",
+        "file": "creative/music-note.png",
+        "exists": true
+      },
+      {
+        "name": "film",
+        "file": "creative/film.png",
+        "exists": true
+      },
+      {
+        "name": "brush",
+        "file": "creative/brush.png",
+        "exists": true
+      },
+      {
+        "name": "pen-tool",
+        "file": "creative/pen-tool.png",
+        "exists": true
+      },
+      {
+        "name": "typography",
+        "file": "creative/typography.png",
+        "exists": true
+      },
+      {
+        "name": "color-wheel",
+        "file": "creative/color-wheel.png",
+        "exists": true
+      },
+      {
+        "name": "design-grid",
+        "file": "creative/design-grid.png",
+        "exists": true
+      },
+      {
+        "name": "sparkle",
+        "file": "creative/sparkle.png",
+        "exists": true
+      }
+    ],
+    "real-estate": [
+      {
+        "name": "house",
+        "file": "real-estate/house.png",
+        "exists": true
+      },
+      {
+        "name": "apartment",
+        "file": "real-estate/apartment.png",
+        "exists": true
+      },
+      {
+        "name": "office-building",
+        "file": "real-estate/office-building.png",
+        "exists": true
+      },
+      {
+        "name": "crane",
+        "file": "real-estate/crane.png",
+        "exists": true
+      },
+      {
+        "name": "blueprint",
+        "file": "real-estate/blueprint.png",
+        "exists": true
+      },
+      {
+        "name": "floor-plan",
+        "file": "real-estate/floor-plan.png",
+        "exists": true
+      },
+      {
+        "name": "key-real-estate",
+        "file": "real-estate/key-real-estate.png",
+        "exists": true
+      },
+      {
+        "name": "location-pin",
+        "file": "real-estate/location-pin.png",
+        "exists": true
+      },
+      {
+        "name": "property-value",
+        "file": "real-estate/property-value.png",
+        "exists": true
+      },
+      {
+        "name": "construction",
+        "file": "real-estate/construction.png",
+        "exists": true
+      }
+    ]
+  }
+}

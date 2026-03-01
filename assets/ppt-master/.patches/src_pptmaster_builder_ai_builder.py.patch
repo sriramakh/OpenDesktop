@@ -1,0 +1,22 @@
+--- /var/folders/7h/68m0sh1x3qs2c9hrs26h8cmr0000gn/T/tmp.8RgzJ3J67m/ppt-master/src/pptmaster/builder/ai_builder.py	2026-03-01 20:40:19
++++ /Users/sriram/Desktop/AI Projects/OpenDesktop/assets/ppt-master/src/pptmaster/builder/ai_builder.py	2026-03-01 18:00:59
+@@ -95,7 +95,7 @@
+     # Build TOC sections list for the TOC slide
+     toc_sections = []
+     for i, sec in enumerate(sections):
+-        toc_sections.append([f"{i+1:02d}", sec["title"], sec["subtitle"]])
++        toc_sections.append([f"{i+1:02d}", sec.get("title", ""), sec.get("subtitle", "")])
+     theme.content["toc_sections"] = toc_sections
+ 
+     # Create presentation
+@@ -131,8 +131,8 @@
+         _add_slide(
+             build_divider, True,
+             section_number=f"{i+1:02d}",
+-            section_title=sec["title"],
+-            subtitle=sec["subtitle"],
++            section_title=sec.get("title", ""),
++            subtitle=sec.get("subtitle", ""),
+         )
+         # Content slides in this section
+         for slide_type in sec["slides"]:

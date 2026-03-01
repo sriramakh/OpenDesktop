@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pptmaster"
+version = "0.1.0"
+description = "AI-Powered Executive Presentation Generator"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "python-pptx>=0.6.23",
+    "openai>=1.12.0",
+    "streamlit>=1.31.0",
+    "typer[all]>=0.9.0",
+    "rich>=13.7.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.1.0",
+    "Pillow>=10.2.0",
+    "pandas>=2.2.0",
+    "openpyxl>=3.1.2",
+    "pdfplumber>=0.11.0",
+    "python-docx>=1.1.0",
+    "beautifulsoup4>=4.12.3",
+    "trafilatura>=1.8.0",
+    "lxml>=5.1.0",
+    "python-dotenv>=1.0.1",
+    "mcp[cli]>=1.0.0",
+]
+
+[project.scripts]
+pptmaster = "pptmaster.cli.app:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pptmaster"]

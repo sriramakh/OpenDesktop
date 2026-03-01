@@ -1,0 +1,30 @@
+--- /var/folders/7h/68m0sh1x3qs2c9hrs26h8cmr0000gn/T/tmp.8RgzJ3J67m/ppt-master/src/pptmaster/content/builder_content_gen.py	2026-03-01 20:40:19
++++ /Users/sriram/Desktop/AI Projects/OpenDesktop/assets/ppt-master/src/pptmaster/content/builder_content_gen.py	2026-03-01 17:13:48
+@@ -10,8 +10,15 @@
+ import json
+ from typing import Any
+ 
+-from pptmaster.config import get_settings
+-from pptmaster.content.llm_client import LLMClient
++# Lazy imports to avoid pulling in heavy deps (openai, pydantic-settings)
++# when only _validate_content / build_from_content is needed.
++def _get_settings():
++    from pptmaster.config import get_settings as _gs
++    return _gs()
++
++def _get_llm_client():
++    from pptmaster.content.llm_client import LLMClient as _LC
++    return _LC
+ 
+ # ── Slide catalog — every selectable slide type ──────────────────────
+ 
+@@ -1084,7 +1091,8 @@
+             "content": { ... validated content keys ... },
+         }
+     """
+-    settings = get_settings()
++    settings = _get_settings()
++    LLMClient = _get_llm_client()
+     client = LLMClient(provider=provider, api_key=api_key)
+ 
+     user_prompt = _build_user_prompt(
