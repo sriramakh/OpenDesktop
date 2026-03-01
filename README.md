@@ -36,17 +36,24 @@ Built with **Electron + React + Node.js** — everything runs locally on your ma
 │  ┌──────────┴──────────┐  ┌──────────┴────────────────┐ │
 │  │   Tool Registry      │  │    Memory System          │ │
 │  │  • Filesystem (13)   │  │  • Short-term (100 msg)   │ │
-│  │  • Office (21)       │  │  • Long-term (SQLite FTS) │ │
+│  │  • Office (28)       │  │  • Long-term (SQLite FTS) │ │
 │  │  • App Control (6)   │  │  • Full-text search       │ │
 │  │  • Browser (5)       │  │  • JSON fallback          │ │
 │  │  • Browser Tabs (9)  │  ├──────────────────────────┤ │
-│  │  • Search/Fetch (4)  │  │  Permission Manager       │ │
-│  │  • Content (1)       │  │  safe / sensitive / danger │ │
-│  │  • System (6)        │  │                          │ │
+│  │  • Presentation (15) │  │  Permission Manager       │ │
+│  │  • Productivity (12) │  │  safe / sensitive / danger │ │
+│  │  • GitHub (8)        │  │                          │ │
+│  │  • Database (6)      │  │                          │ │
+│  │  • Workflow (6)      │  │                          │ │
+│  │  • Scheduler (6)     │  │                          │ │
+│  │  • Messaging (5)     │  │                          │ │
+│  │  • Search/Fetch (4)  │  │                          │ │
+│  │  • Orchestration (4) │  │                          │ │
 │  │  • LLM (4)           │  │                          │ │
-│  │  • Connectors (5)    │  │                          │ │
 │  │  • Reminders (3)     │  │                          │ │
-│  │  Total: 75 tools     │  └──────────────────────────┘ │
+│  │  • Content (1)       │  │                          │ │
+│  │  + more...           │  │                          │ │
+│  │  Total: 146 tools    │  └──────────────────────────┘ │
 │  └──────────────────────┘                                │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -112,14 +119,14 @@ Choose from **11 providers** and **80+ models** directly in the Settings UI:
 - **Encrypted API key storage** — AES-256-GCM encryption with machine-specific key derivation (PBKDF2, 100K iterations)
 - Keys are stored in `~/.config/open-desktop/.keystore.enc`, never in plaintext
 
-### Unified Tool System (75 tools)
+### Unified Tool System (146 tools)
 
 All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native function calling with every LLM provider.
 
 | Category | Tools | Count | Permission |
 |----------|-------|:-----:|------------|
 | **Filesystem** | `fs_read`, `fs_write`, `fs_edit`, `fs_list`, `fs_search`, `fs_delete`, `fs_move`, `fs_mkdir`, `fs_tree`, `fs_info`, `fs_organize`, `fs_undo`, `fs_diff` | 13 | Safe/Sensitive/Dangerous |
-| **Office Documents** | `office_read_pdf`, `office_pdf_search`, `office_pdf_ask`, `office_search_pdfs`, `office_read_docx`, `office_search_docx`, `office_search_docxs`, `office_write_docx`, `office_analyze_xlsx`, `office_read_xlsx`, `office_write_xlsx`, `office_chart_xlsx`, `office_dashboard_xlsx`, `office_python_dashboard`, `office_validate_dashboard`, `excel_vba_run`, `excel_vba_list`, `office_read_pptx`, `office_write_pptx`, `office_read_csv`, `office_write_csv` | 21 | Safe/Sensitive |
+| **Office Documents** | `office_read_pdf`, `office_pdf_search`, `office_pdf_ask`, `office_search_pdfs`, `office_read_docx`, `office_search_docx`, `office_search_docxs`, `office_write_docx`, `office_analyze_xlsx`, `office_read_xlsx`, `office_write_xlsx`, `office_chart_xlsx`, `office_dashboard_xlsx`, `office_python_dashboard`, `office_validate_dashboard`, `office_csv_to_xlsx`, `excel_vba_run`, `excel_vba_list`, `office_read_pptx`, `office_write_pptx`, `office_read_csv`, `office_write_csv`, + 6 more | 28 | Safe/Sensitive |
 | **Google Connectors** | `connector_drive_search`, `connector_drive_read`, `connector_gmail_search`, `connector_gmail_read`, `connector_calendar_events` | 5 | Safe |
 | **App Control** | `app_open`, `app_find`, `app_list`, `app_focus`, `app_quit`, `app_screenshot` | 6 | Safe/Sensitive |
 | **Browser** | `browser_navigate`, `browser_click`, `browser_type`, `browser_key`, `browser_submit_form` | 5 | Sensitive/Dangerous |
@@ -129,7 +136,15 @@ All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native f
 | **System** | `system_exec`, `system_info`, `system_processes`, `system_clipboard_read`, `system_clipboard_write`, `system_notify` | 6 | Safe/Sensitive |
 | **LLM** | `llm_query`, `llm_summarize`, `llm_extract`, `llm_code` | 4 | Safe |
 | **Reminders** | `reminder_set`, `reminder_list`, `reminder_cancel` | 3 | Safe |
-| **Total** | | **75** | |
+| **Presentation** | `ppt_create`, `ppt_add_slide`, `ppt_build_from_outline`, `ppt_add_chart`, `ppt_add_image`, `ppt_apply_theme`, + 9 more | 15 | Safe/Sensitive |
+| **Productivity** | `todo_create`, `todo_list`, `todo_update`, `todo_delete`, `note_create`, `note_search`, `calendar_create_event`, + 5 more | 12 | Safe/Sensitive |
+| **GitHub** | `github_create_repo`, `github_create_issue`, `github_create_pr`, `github_list_repos`, `github_search_code`, + 3 more | 8 | Sensitive |
+| **Database** | `db_query`, `db_execute`, `db_schema`, `db_export`, `db_import`, `db_backup` | 6 | Sensitive/Dangerous |
+| **Workflow** | `workflow_create`, `workflow_execute`, `workflow_list`, `workflow_status`, `workflow_cancel`, `workflow_delete` | 6 | Safe/Sensitive |
+| **Scheduler** | `schedule_task`, `schedule_list`, `schedule_cancel`, `schedule_pause`, `schedule_resume`, `schedule_update` | 6 | Safe/Sensitive |
+| **Messaging** | `slack_send`, `slack_list_channels`, `discord_send`, `email_send`, `sms_send` | 5 | Sensitive |
+| **Orchestration** | `agent_spawn`, `agent_communicate`, `agent_list`, `agent_terminate` | 4 | Sensitive |
+| **Total** | | **146** | |
 
 #### Key tool capabilities
 

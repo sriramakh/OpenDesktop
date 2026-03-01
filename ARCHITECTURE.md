@@ -57,11 +57,13 @@ OpenDesktop is a **local-first autonomous AI agent** that runs natively on macOS
 │  │              │    └── KeyStore (AES-256-GCM)                │  │
 │  │              └── PermissionManager (safe/sensitive/danger)  │  │
 │  │                                                            │  │
-│  │  ┌─── Tool Registry (75 tools) ────────────────────────┐  │  │
-│  │  │ Filesystem(13) │ Office(21) │ AppControl(6)         │  │  │
-│  │  │ Browser(5)     │ BrowserTabs(9) │ Search(4)         │  │  │
-│  │  │ System(6)      │ LLM(4)      │ Connectors(5)        │  │  │
-│  │  │ Content(1)     │ Reminders(3)                       │  │  │
+│  │  ┌─── Tool Registry (146 tools) ───────────────────────┐  │  │
+│  │  │ Filesystem(13) │ Office(28)  │ Presentation(15)    │  │  │
+│  │  │ Productivity(12)│ Browser(5+9)│ GitHub(8)           │  │  │
+│  │  │ Database(6)    │ Workflow(6) │ Scheduler(6)        │  │  │
+│  │  │ Messaging(5)   │ Connectors(5)│ Search(4)          │  │  │
+│  │  │ Orchestration(4)│ LLM(4)     │ Reminders(3)        │  │  │
+│  │  │ AppControl(6)  │ System(6)   │ Content(1)          │  │  │
 │  │  └─────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
@@ -111,7 +113,7 @@ app.whenReady()
       → memory.initialize()                // Create/open SQLite DB
       → keyStore.initialize()              // Decrypt .keystore.enc
       → reminderService.init(userDataPath, emitFn) // JSON-backed reminder scheduler
-      → toolRegistry.registerBuiltinTools() // Load all 75 tools
+      → toolRegistry.registerBuiltinTools() // Load all 146 tools
   → createWindow()                          // BrowserWindow with vibrancy
   → setupIPC()                              // Register all IPC handlers
 ```
@@ -972,9 +974,9 @@ OpenDesktop/
 │       │
 │       └── tools/                  # ═══ TOOL IMPLEMENTATIONS ═══
 │           ├── registry.js         # ToolRegistry: registration + provider-specific schemas
-│           ├── tool-schemas.js     # JSON Schema definitions for all 75 tools
+│           ├── tool-schemas.js     # JSON Schema definitions for all 146 tools
 │           ├── filesystem.js       # 13 tools: read, write, edit, list, search, move, organize, undo, diff...
-│           ├── office.js           # 21 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), Dashboards, VBA, PPTX (pptxgenjs), CSV
+│           ├── office.js           # 28 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), Dashboards, VBA, PPTX (pptxgenjs), CSV
 │           ├── connectors.js       # 5 tools: Google Drive, Gmail, Calendar integration
 │           ├── app-control.js      # 6 tools: open (fuzzy), find, list, focus, quit, screenshot
 │           ├── browser.js          # 5 tools: navigate, click, type, key, submit_form
@@ -982,6 +984,14 @@ OpenDesktop/
 │           ├── search-fetch.js     # 4 tools: web_search, web_fetch, web_fetch_json, web_download
 │           ├── content-tools.js    # 1 tool: summarize web articles, audio, video
 │           ├── reminder-tools.js   # 3 tools: reminder_set, reminder_list, reminder_cancel
+│           ├── presentation-tools.js # 15 tools: ppt_create, ppt_add_slide, ppt_build_from_outline, charts, themes...
+│           ├── productivity-tools.js # 12 tools: todo/note/calendar management
+│           ├── github-tools.js     # 8 tools: repo/issue/PR creation, code search
+│           ├── database-tools.js   # 6 tools: query, execute, schema, export, import, backup
+│           ├── workflow-tools.js   # 6 tools: create, execute, list, status, cancel, delete
+│           ├── scheduler-tools.js  # 6 tools: schedule tasks with cron-like scheduling
+│           ├── messaging-tools.js  # 5 tools: Slack, Discord, email, SMS integration
+│           ├── orchestration-tools.js # 4 tools: multi-agent spawning and coordination
 │           ├── system.js           # 6 tools: exec, info, processes, clipboard, notify
 │           └── llm-tools.js        # 4 tools: query, summarize, extract, code
 │
