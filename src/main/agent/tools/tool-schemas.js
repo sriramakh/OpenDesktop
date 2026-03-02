@@ -1199,6 +1199,323 @@ MANDATORY QUALITY RULES — violating any of these produces a bad presentation:
     required: ['path', 'slides'],
   },
 
+  // ---------------------------------------------------------------------------
+  // PPT Master — Premium Presentation Builder (32 slide types, 14 themes)
+  // ---------------------------------------------------------------------------
+
+  pptx_list_themes: {
+    description: 'List all 14 available presentation themes with industry, UX style, colors, fonts, and descriptions. Use to help the user choose a theme before building a presentation.',
+    properties: {},
+    required: [],
+  },
+
+  pptx_list_slide_types: {
+    description: 'List all 32 selectable slide types with descriptions and required content keys. Reference this to understand what JSON content each slide type needs.',
+    properties: {},
+    required: [],
+  },
+
+  pptx_generate_content: {
+    description: 'Use Python-side LLM to generate presentation content JSON from a topic. Alternative to the agent generating content directly — requires an API key forwarded to the Python process.',
+    properties: {
+      topic: {
+        type: 'string',
+        description: 'Main topic or title for the presentation (e.g. "Q4 2025 Financial Review for Acme Corp").',
+      },
+      company_name: {
+        type: 'string',
+        description: 'Company name. Default: "Acme Corp".',
+      },
+      industry: {
+        type: 'string',
+        description: 'Industry context (e.g. "Technology", "Healthcare"). Helps guide content tone.',
+      },
+      audience: {
+        type: 'string',
+        description: 'Target audience (e.g. "Board of Directors", "Investors", "Engineering team").',
+      },
+      additional_context: {
+        type: 'string',
+        description: 'Extra context, data points, or instructions for content generation.',
+      },
+      provider: {
+        type: 'string',
+        description: 'LLM provider for content generation: minimax, openai, anthropic, google. Default: minimax.',
+      },
+      api_key: {
+        type: 'string',
+        description: 'API key for the LLM provider.',
+      },
+    },
+    required: ['topic'],
+  },
+
+  pptx_build: {
+    description: `Build a professional PPTX file from content JSON using PPT Master engine. Supports 32 slide types, 14 industry themes, 144 icons, and 14 UX styles.
+
+WORKFLOW — the agent should:
+1. Read the skill guide: fs_read the presentation-builder.md skill file
+2. Use pptx_list_themes to help the user pick a theme (or auto-select by industry)
+3. Select appropriate slide types from the 32 available (use pptx_list_slide_types for reference)
+4. Generate a content_json object following the schema (selected_slides + sections + content)
+5. Call pptx_build with that JSON
+
+ALWAYS-INCLUDED SLIDES (do NOT list in selected_slides):
+- cover: provide cover_title, cover_subtitle, cover_date in content
+- toc: auto-generated from sections
+- section_divider: auto-inserted before each section
+- thank_you: provide thankyou_contacts in content
+
+CRITICAL RULES:
+- pie_values MUST sum to 100
+- Chart series values must match category count
+- kpis/progress/gauges: floats must be 0.0-1.0
+- No truncation with "..." — complete sentences only`,
+    properties: {
+      content_json: {
+        type: 'object',
+        description: `The presentation content. Structure:
+{
+  "selected_slides": ["executive_summary", "bar_chart", "next_steps"],
+  "sections": [{"title": "Overview", "slides": ["executive_summary"]}, {"title": "Analysis", "slides": ["bar_chart"]}, {"title": "Actions", "slides": ["next_steps"]}],
+  "content": {
+    "cover_title": "Presentation Title", "cover_subtitle": "Subtitle", "cover_date": "March 2026",
+    "exec_title": "Executive Summary", "exec_bullets": ["Point 1", "Point 2", "Point 3", "Point 4", "Point 5"], "exec_metrics": [["$100M", "Revenue"], ["25%", "Growth"], ["500", "Customers"]],
+    "bar_title": "Revenue", "bar_categories": ["Q1","Q2","Q3","Q4"], "bar_series": [{"name":"2025","values":[10,20,30,40]}],
+    "next_steps_title": "Next Steps", "next_steps": [["Action","Desc","Owner","Due"], ["Action2","Desc2","Owner2","Due2"], ["Action3","Desc3","Owner3","Due3"], ["Action4","Desc4","Owner4","Due4"]],
+    "thankyou_contacts": [["Email","contact@co.com"],["Phone","555-1234"],["Web","company.com"]]
+  }
+}
+Each slide type has specific content keys — call pptx_list_slide_types for the full reference. Always include cover_title, cover_subtitle, cover_date, and thankyou_contacts. Sections are optional (auto-created if omitted).`,
+      },
+      theme_key: {
+        type: 'string',
+        description: 'Theme key from pptx_list_themes (e.g. "corporate", "technology", "finance"). Default: "corporate".',
+        default: 'corporate',
+      },
+      company_name: {
+        type: 'string',
+        description: 'Company name shown on cover and footer. Default: "Acme Corp".',
+      },
+      output_path: {
+        type: 'string',
+        description: 'Absolute path for the output .pptx file. Default: ~/Desktop/presentation.pptx.',
+      },
+    },
+    required: ['content_json'],
+  },
+
+  pptx_ai_build: {
+    description: 'Build a professional presentation end-to-end. The AI engine selects 10-15 optimal slides from 32 types, generates all content, and renders a polished PPTX with charts, KPIs, diagrams, and more. ALWAYS use this for ANY presentation request. Pass research findings or file data via additional_context.',
+    properties: {
+      topic: {
+        type: 'string',
+        description: 'What the presentation is about. Be descriptive — e.g. "FY25 Annual Report of The Home Depot" or "Series B Pitch Deck for AI Startup NexTech".',
+      },
+      company_name: {
+        type: 'string',
+        description: 'Company name shown on cover and throughout. Default: "Acme Corp".',
+      },
+      theme_key: {
+        type: 'string',
+        description: 'Visual theme: corporate, healthcare, technology, finance, education, sustainability, luxury, startup, government, realestate, creative, academic, research, report. Default: "corporate".',
+      },
+      industry: {
+        type: 'string',
+        description: 'Industry context to guide content tone (e.g. "Retail", "Technology", "Healthcare").',
+      },
+      audience: {
+        type: 'string',
+        description: 'Target audience (e.g. "Board of Directors", "Investors", "Engineering Team").',
+      },
+      additional_context: {
+        type: 'string',
+        description: 'IMPORTANT: Pass ALL gathered context here — research findings from web_search/web_fetch, file contents from office_read_*/fs_read, data summaries, specific numbers, or any instructions. The AI engine weaves this into the slides. The more context you provide, the better the presentation.',
+      },
+      output_path: {
+        type: 'string',
+        description: 'Absolute path for the output .pptx file. Default: ~/Desktop/presentation.pptx.',
+      },
+    },
+    required: ['topic'],
+  },
+
+  // ── Presentation Edit Tools ────────────────────────────────────────
+
+  pptx_edit_get_state: {
+    description: 'Show the current structure of an iteratively-edited presentation: sections, slide types, theme, and metadata. Call this first when the user wants to edit an existing presentation.',
+    properties: {
+      session_path: {
+        type: 'string',
+        description: 'Absolute path to the .session.json file (returned by pptx_ai_build or pptx_build).',
+      },
+    },
+    required: ['session_path'],
+  },
+
+  pptx_edit_add_slide: {
+    description: 'Add a new slide to an existing presentation. The AI generates content for it automatically. Use pptx_list_slide_types to see available types.',
+    properties: {
+      session_path: {
+        type: 'string',
+        description: 'Absolute path to the .session.json file.',
+      },
+      slide_type: {
+        type: 'string',
+        description: 'Slide type to add — e.g. "swot_matrix", "bar_chart", "kpi_dashboard". Must be one of the 32 valid types.',
+      },
+      after: {
+        type: 'string',
+        description: 'Insert after this slide type. If omitted, appends to the end.',
+      },
+      section_title: {
+        type: 'string',
+        description: 'Place in this section (by title). If omitted, uses the section containing "after" or the last section.',
+      },
+      instruction: {
+        type: 'string',
+        description: 'Optional instruction to guide content generation — e.g. "Focus on Q4 metrics" or "Compare with competitor X".',
+      },
+    },
+    required: ['session_path', 'slide_type'],
+  },
+
+  pptx_edit_remove_slide: {
+    description: 'Remove a slide type from an existing presentation.',
+    properties: {
+      session_path: {
+        type: 'string',
+        description: 'Absolute path to the .session.json file.',
+      },
+      slide_type: {
+        type: 'string',
+        description: 'Slide type to remove — e.g. "team_leadership", "sources".',
+      },
+    },
+    required: ['session_path', 'slide_type'],
+  },
+
+  pptx_edit_move_slide: {
+    description: 'Move a slide to a different position in the presentation.',
+    properties: {
+      session_path: {
+        type: 'string',
+        description: 'Absolute path to the .session.json file.',
+      },
+      slide_type: {
+        type: 'string',
+        description: 'Slide type to move.',
+      },
+      after: {
+        type: 'string',
+        description: 'Move after this slide type. Omit or set to null to move to the front.',
+      },
+    },
+    required: ['session_path', 'slide_type'],
+  },
+
+  pptx_edit_update_content: {
+    description: 'Update specific content fields for a slide without regenerating everything. Pass the exact content keys and new values.',
+    properties: {
+      session_path: {
+        type: 'string',
+        description: 'Absolute path to the .session.json file.',
+      },
+      slide_type: {
+        type: 'string',
+        description: 'Slide type whose content to update (for context in the status message).',
+      },
+      updates: {
+        type: 'object',
+        description: 'JSON object of content key-value pairs to update. Keys must match the slide type content keys from pptx_list_slide_types. Example: {"exec_title": "New Title", "exec_bullets": ["bullet 1", "bullet 2"]}.',
+      },
+    },
+    required: ['session_path', 'slide_type', 'updates'],
+  },
+
+  pptx_edit_regenerate: {
+    description: 'Regenerate content for a specific slide using LLM. The existing content is replaced with freshly generated content. Optionally pass an instruction to guide the output.',
+    properties: {
+      session_path: {
+        type: 'string',
+        description: 'Absolute path to the .session.json file.',
+      },
+      slide_type: {
+        type: 'string',
+        description: 'Slide type to regenerate — e.g. "executive_summary", "kpi_dashboard".',
+      },
+      instruction: {
+        type: 'string',
+        description: 'Optional instruction to guide regeneration — e.g. "Make it more data-driven" or "Focus on sustainability".',
+      },
+    },
+    required: ['session_path', 'slide_type'],
+  },
+
+  pptx_edit_set_theme: {
+    description: 'Change the visual theme of an existing presentation. The presentation is rebuilt with the new theme applied to all slides.',
+    properties: {
+      session_path: {
+        type: 'string',
+        description: 'Absolute path to the .session.json file.',
+      },
+      theme_key: {
+        type: 'string',
+        description: 'New theme key: corporate, healthcare, technology, finance, education, sustainability, luxury, startup, government, realestate, creative, academic, research, report.',
+      },
+    },
+    required: ['session_path', 'theme_key'],
+  },
+
+  pptx_edit_rebuild: {
+    description: 'Force rebuild the presentation PPTX from current session state. Use after making manual changes to the session file or to refresh the output.',
+    properties: {
+      session_path: {
+        type: 'string',
+        description: 'Absolute path to the .session.json file.',
+      },
+    },
+    required: ['session_path'],
+  },
+
+  pptx_edit_rename_section: {
+    description: 'Rename a section in the presentation. The section divider slide title will update on rebuild.',
+    properties: {
+      session_path: {
+        type: 'string',
+        description: 'Absolute path to the .session.json file.',
+      },
+      old_title: {
+        type: 'string',
+        description: 'Current section title (case-insensitive match).',
+      },
+      new_title: {
+        type: 'string',
+        description: 'New section title.',
+      },
+    },
+    required: ['session_path', 'old_title', 'new_title'],
+  },
+
+  pptx_edit_add_section: {
+    description: 'Add a new empty section to the presentation. You can then add slides to it with pptx_edit_add_slide using the section_title parameter.',
+    properties: {
+      session_path: {
+        type: 'string',
+        description: 'Absolute path to the .session.json file.',
+      },
+      title: {
+        type: 'string',
+        description: 'Section title.',
+      },
+      subtitle: {
+        type: 'string',
+        description: 'Optional section subtitle.',
+      },
+    },
+    required: ['session_path', 'title'],
+  },
+
   office_read_csv: {
     description: 'Read and parse a CSV or TSV file. Returns column headers, row count, and data. Supports auto-detecting delimiter. Use startRow/endRow for pagination.',
     properties: {
@@ -1608,6 +1925,745 @@ MANDATORY QUALITY RULES — violating any of these produces a bad presentation:
       id: { type: 'string', description: 'The reminder ID to cancel (e.g. "rem_1234567_abc12").' },
     },
     required: ['id'],
+  },
+
+  // ---------------------------------------------------------------------------
+  // Database
+  // ---------------------------------------------------------------------------
+  db_list_connections: {
+    description: 'List all configured database connections (SQLite, PostgreSQL, MySQL).',
+    properties: {},
+    required: [],
+  },
+  db_add_connection: {
+    description: 'Add a new database connection. Supports SQLite, PostgreSQL, MySQL.',
+    properties: {
+      name:     { type: 'string', description: 'Friendly name for this connection.' },
+      type:     { type: 'string', description: 'Database type: sqlite, postgres, or mysql.', enum: ['sqlite', 'postgres', 'mysql'] },
+      database: { type: 'string', description: 'Database name or file path (for SQLite).' },
+      host:     { type: 'string', description: 'Hostname (PostgreSQL/MySQL only).' },
+      port:     { type: 'number', description: 'Port number (default: 5432 for PG, 3306 for MySQL).' },
+      user:     { type: 'string', description: 'Database username.' },
+      password: { type: 'string', description: 'Database password (stored securely).' },
+      ssl:      { type: 'boolean', description: 'Enable SSL/TLS.' },
+    },
+    required: ['name', 'type', 'database'],
+  },
+  db_test_connection: {
+    description: 'Test a database connection.',
+    properties: {
+      connectionId: { type: 'string', description: 'Connection ID or name.' },
+    },
+    required: ['connectionId'],
+  },
+  db_schema: {
+    description: 'List all tables and views in a database.',
+    properties: {
+      connectionId: { type: 'string', description: 'Connection ID or name.' },
+    },
+    required: ['connectionId'],
+  },
+  db_describe: {
+    description: 'Describe the columns of a specific table.',
+    properties: {
+      connectionId: { type: 'string', description: 'Connection ID or name.' },
+      table:        { type: 'string', description: 'Table name to describe.' },
+    },
+    required: ['connectionId', 'table'],
+  },
+  db_query: {
+    description: 'Execute a SQL query. SELECT returns rows; INSERT/UPDATE/DELETE returns affected rows count.',
+    properties: {
+      connectionId: { type: 'string', description: 'Connection ID or name.' },
+      query:        { type: 'string', description: 'SQL query to execute.' },
+      maxRows:      { type: 'number', description: 'Maximum rows to return (default: 100, max: 1000).' },
+    },
+    required: ['connectionId', 'query'],
+  },
+
+  // ---------------------------------------------------------------------------
+  // GitHub
+  // ---------------------------------------------------------------------------
+  github_list_repos: {
+    description: 'List GitHub repositories for a user or org.',
+    properties: {
+      owner: { type: 'string', description: 'GitHub username or org name.' },
+      type:  { type: 'string', description: 'all, owner, member. Default: all.' },
+      sort:  { type: 'string', description: 'Sort by: created, updated, pushed, full_name. Default: updated.' },
+      limit: { type: 'number', description: 'Max repos to return (default: 30).' },
+    },
+    required: ['owner'],
+  },
+  github_list_issues: {
+    description: 'List issues for a GitHub repository.',
+    properties: {
+      owner: { type: 'string', description: 'Repository owner.' },
+      repo:  { type: 'string', description: 'Repository name.' },
+      state: { type: 'string', description: 'open, closed, or all. Default: open.' },
+      label: { type: 'string', description: 'Filter by label name.' },
+      limit: { type: 'number', description: 'Max issues to return (default: 20).' },
+    },
+    required: ['owner', 'repo'],
+  },
+  github_create_issue: {
+    description: 'Create a new GitHub issue.',
+    properties: {
+      owner:     { type: 'string', description: 'Repository owner.' },
+      repo:      { type: 'string', description: 'Repository name.' },
+      title:     { type: 'string', description: 'Issue title.' },
+      body:      { type: 'string', description: 'Issue body (markdown).' },
+      labels:    { type: 'array',  description: 'Array of label names.', items: { type: 'string' } },
+      assignees: { type: 'array',  description: 'Array of usernames to assign.', items: { type: 'string' } },
+    },
+    required: ['owner', 'repo', 'title'],
+  },
+  github_list_prs: {
+    description: 'List pull requests for a GitHub repository.',
+    properties: {
+      owner: { type: 'string', description: 'Repository owner.' },
+      repo:  { type: 'string', description: 'Repository name.' },
+      state: { type: 'string', description: 'open, closed, or all. Default: open.' },
+      limit: { type: 'number', description: 'Max PRs to return (default: 20).' },
+    },
+    required: ['owner', 'repo'],
+  },
+  github_create_pr: {
+    description: 'Create a pull request.',
+    properties: {
+      owner: { type: 'string', description: 'Repository owner.' },
+      repo:  { type: 'string', description: 'Repository name.' },
+      title: { type: 'string', description: 'PR title.' },
+      head:  { type: 'string', description: 'Branch with changes.' },
+      base:  { type: 'string', description: 'Target branch (e.g. main).' },
+      body:  { type: 'string', description: 'PR description.' },
+      draft: { type: 'boolean', description: 'Create as draft PR.' },
+    },
+    required: ['owner', 'repo', 'title', 'head', 'base'],
+  },
+  github_get_file: {
+    description: 'Get file contents from a GitHub repository.',
+    properties: {
+      owner:    { type: 'string', description: 'Repository owner.' },
+      repo:     { type: 'string', description: 'Repository name.' },
+      filePath: { type: 'string', description: 'Path to file in repo (e.g. src/index.js).' },
+      ref:      { type: 'string', description: 'Branch, tag, or commit SHA.' },
+    },
+    required: ['owner', 'repo', 'filePath'],
+  },
+  github_search_code: {
+    description: 'Search for code on GitHub.',
+    properties: {
+      query: { type: 'string', description: 'Search query (supports GitHub code search syntax).' },
+      limit: { type: 'number', description: 'Max results (default: 10).' },
+    },
+    required: ['query'],
+  },
+  github_comment: {
+    description: 'Add a comment to a GitHub issue or PR.',
+    properties: {
+      owner:       { type: 'string', description: 'Repository owner.' },
+      repo:        { type: 'string', description: 'Repository name.' },
+      issueNumber: { type: 'number', description: 'Issue or PR number.' },
+      body:        { type: 'string', description: 'Comment text (markdown).' },
+    },
+    required: ['owner', 'repo', 'issueNumber', 'body'],
+  },
+
+  // ---------------------------------------------------------------------------
+  // Jira
+  // ---------------------------------------------------------------------------
+  jira_search: {
+    description: 'Search Jira issues using JQL (Jira Query Language).',
+    properties: {
+      jql:        { type: 'string', description: 'JQL query (e.g. "project = ENG AND status = Open").' },
+      maxResults: { type: 'number', description: 'Max results (default: 20).' },
+    },
+    required: ['jql'],
+  },
+  jira_get_issue: {
+    description: 'Get details of a specific Jira issue.',
+    properties: {
+      issueKey: { type: 'string', description: 'Issue key (e.g. ENG-123).' },
+    },
+    required: ['issueKey'],
+  },
+  jira_create_issue: {
+    description: 'Create a new Jira issue.',
+    properties: {
+      projectKey:  { type: 'string', description: 'Jira project key (e.g. ENG).' },
+      summary:     { type: 'string', description: 'Issue summary/title.' },
+      issueType:   { type: 'string', description: 'Issue type: Task, Bug, Story, Epic. Default: Task.' },
+      description: { type: 'string', description: 'Issue description.' },
+      priority:    { type: 'string', description: 'Priority: Highest, High, Medium, Low, Lowest.' },
+    },
+    required: ['projectKey', 'summary'],
+  },
+  jira_update_status: {
+    description: 'Transition a Jira issue to a new status.',
+    properties: {
+      issueKey: { type: 'string', description: 'Issue key (e.g. ENG-123).' },
+      status:   { type: 'string', description: 'Target status name (e.g. "In Progress", "Done").' },
+    },
+    required: ['issueKey', 'status'],
+  },
+  jira_add_comment: {
+    description: 'Add a comment to a Jira issue.',
+    properties: {
+      issueKey: { type: 'string', description: 'Issue key (e.g. ENG-123).' },
+      body:     { type: 'string', description: 'Comment text.' },
+    },
+    required: ['issueKey', 'body'],
+  },
+
+  // ---------------------------------------------------------------------------
+  // Linear
+  // ---------------------------------------------------------------------------
+  linear_list_issues: {
+    description: 'List Linear issues.',
+    properties: {
+      teamId: { type: 'string', description: 'Team ID to filter by.' },
+      state:  { type: 'string', description: 'State name to filter by (e.g. "In Progress").' },
+      limit:  { type: 'number', description: 'Max results (default: 20).' },
+    },
+    required: [],
+  },
+  linear_create_issue: {
+    description: 'Create a new Linear issue.',
+    properties: {
+      teamId:      { type: 'string', description: 'Team ID (required).' },
+      title:       { type: 'string', description: 'Issue title.' },
+      description: { type: 'string', description: 'Issue description (markdown).' },
+      priority:    { type: 'number', description: 'Priority: 0=No, 1=Urgent, 2=High, 3=Medium, 4=Low.' },
+    },
+    required: ['teamId', 'title'],
+  },
+  linear_update_issue: {
+    description: 'Update a Linear issue.',
+    properties: {
+      issueId:     { type: 'string', description: 'Issue ID.' },
+      title:       { type: 'string', description: 'New title.' },
+      description: { type: 'string', description: 'New description.' },
+      priority:    { type: 'number', description: 'New priority.' },
+      stateId:     { type: 'string', description: 'New workflow state ID.' },
+    },
+    required: ['issueId'],
+  },
+
+  // ---------------------------------------------------------------------------
+  // Notion
+  // ---------------------------------------------------------------------------
+  notion_search: {
+    description: 'Search Notion pages and databases.',
+    properties: {
+      query: { type: 'string', description: 'Search query.' },
+      limit: { type: 'number', description: 'Max results (default: 10).' },
+    },
+    required: ['query'],
+  },
+  notion_read_page: {
+    description: 'Read the content blocks of a Notion page.',
+    properties: {
+      pageId: { type: 'string', description: 'Notion page ID.' },
+    },
+    required: ['pageId'],
+  },
+  notion_create_page: {
+    description: 'Create a new Notion page.',
+    properties: {
+      parentId:   { type: 'string', description: 'Parent page or database ID.' },
+      title:      { type: 'string', description: 'Page title.' },
+      content:    { type: 'string', description: 'Initial content text.' },
+      parentType: { type: 'string', description: 'page_id or database_id. Default: page_id.' },
+    },
+    required: ['parentId', 'title'],
+  },
+  notion_append_block: {
+    description: 'Append content to a Notion page.',
+    properties: {
+      pageId:    { type: 'string', description: 'Page ID to append to.' },
+      content:   { type: 'string', description: 'Content text to append.' },
+      blockType: { type: 'string', description: 'Block type: paragraph, heading_1, heading_2, bulleted_list_item, etc.' },
+    },
+    required: ['pageId', 'content'],
+  },
+
+  // ---------------------------------------------------------------------------
+  // Slack / Teams
+  // ---------------------------------------------------------------------------
+  slack_send: {
+    description: 'Send a message to a Slack channel via incoming webhook.',
+    properties: {
+      message:    { type: 'string', description: 'Message text (supports Slack markdown).' },
+      webhookUrl: { type: 'string', description: 'Override the configured webhook URL.' },
+      channel:    { type: 'string', description: 'Channel override (e.g. #general).' },
+      username:   { type: 'string', description: 'Bot display name.' },
+      iconEmoji:  { type: 'string', description: 'Bot icon emoji (e.g. :robot_face:).' },
+    },
+    required: ['message'],
+  },
+  slack_send_blocks: {
+    description: 'Send a Slack message with Block Kit layout for rich formatting.',
+    properties: {
+      blocks:     { type: 'array', description: 'Block Kit blocks array.', items: { type: 'object' } },
+      text:       { type: 'string', description: 'Fallback text.' },
+      webhookUrl: { type: 'string', description: 'Override webhook URL.' },
+      channel:    { type: 'string', description: 'Channel override.' },
+    },
+    required: ['blocks'],
+  },
+  slack_search: {
+    description: 'Search Slack messages (requires Slack Bot token with search:read scope).',
+    properties: {
+      query: { type: 'string', description: 'Search query.' },
+      count: { type: 'number', description: 'Max results (default: 10).' },
+    },
+    required: ['query'],
+  },
+  teams_send: {
+    description: 'Send a message to Microsoft Teams via incoming webhook.',
+    properties: {
+      message:    { type: 'string', description: 'Message text.' },
+      webhookUrl: { type: 'string', description: 'Override the configured webhook URL.' },
+      title:      { type: 'string', description: 'Message title.' },
+      themeColor: { type: 'string', description: 'Hex color for the card accent (e.g. 0076D7).' },
+    },
+    required: ['message'],
+  },
+  teams_send_card: {
+    description: 'Send an Adaptive Card to Microsoft Teams.',
+    properties: {
+      card:       { type: 'object', description: 'Adaptive Card JSON object.' },
+      webhookUrl: { type: 'string', description: 'Override webhook URL.' },
+    },
+    required: ['card'],
+  },
+
+  // ---------------------------------------------------------------------------
+  // Workflows
+  // ---------------------------------------------------------------------------
+  workflow_save: {
+    description: 'Save a reusable workflow prompt. Use {{variableName}} placeholders for dynamic substitution.',
+    properties: {
+      name:        { type: 'string', description: 'Workflow name (unique identifier).' },
+      prompt:      { type: 'string', description: 'Prompt template. Use {{var}} for variables.' },
+      description: { type: 'string', description: 'Human-readable description.' },
+      tags:        { type: 'array',  description: 'Tags for organization.', items: { type: 'string' } },
+    },
+    required: ['name', 'prompt'],
+  },
+  workflow_list: {
+    description: 'List all saved workflows.',
+    properties: {
+      search: { type: 'string', description: 'Filter by name/description.' },
+      tag:    { type: 'string', description: 'Filter by tag.' },
+    },
+    required: [],
+  },
+  workflow_run: {
+    description: 'Run a saved workflow, optionally substituting variables.',
+    properties: {
+      workflowId: { type: 'string', description: 'Workflow name or ID.' },
+      variables:  { type: 'object', description: 'Variable substitutions (e.g. {date: "today"}).' },
+    },
+    required: ['workflowId'],
+  },
+  workflow_delete: {
+    description: 'Delete a saved workflow.',
+    properties: {
+      workflowId: { type: 'string', description: 'Workflow name or ID.' },
+    },
+    required: ['workflowId'],
+  },
+  workflow_export: {
+    description: 'Export a workflow as JSON for sharing or backup.',
+    properties: {
+      workflowId: { type: 'string', description: 'Workflow name or ID.' },
+    },
+    required: ['workflowId'],
+  },
+  workflow_import: {
+    description: 'Import a workflow from a JSON string.',
+    properties: {
+      json: { type: 'string', description: 'JSON string of the workflow to import.' },
+    },
+    required: ['json'],
+  },
+
+  // ---------------------------------------------------------------------------
+  // Scheduler
+  // ---------------------------------------------------------------------------
+  schedule_create: {
+    description: 'Create a scheduled task using a cron expression. Examples: "0 9 * * 1-5" (Mon-Fri 9am), "0 * * * *" (hourly), "*/5 * * * *" (every 5 min).',
+    properties: {
+      name:        { type: 'string', description: 'Task name.' },
+      prompt:      { type: 'string', description: 'Prompt to send to the agent when the task fires.' },
+      schedule:    { type: 'string', description: 'Cron expression (5 fields: min hour day month weekday).' },
+      enabled:     { type: 'boolean', description: 'Whether to start scheduling immediately. Default: true.' },
+      timezone:    { type: 'string', description: 'Timezone (e.g. America/New_York). Default: America/New_York.' },
+      description: { type: 'string', description: 'Optional description.' },
+    },
+    required: ['name', 'prompt', 'schedule'],
+  },
+  schedule_list: {
+    description: 'List all scheduled tasks and their status.',
+    properties: {},
+    required: [],
+  },
+  schedule_delete: {
+    description: 'Delete a scheduled task.',
+    properties: {
+      taskId: { type: 'string', description: 'Task ID.' },
+    },
+    required: ['taskId'],
+  },
+  schedule_enable: {
+    description: 'Enable a paused scheduled task.',
+    properties: {
+      taskId: { type: 'string', description: 'Task ID.' },
+    },
+    required: ['taskId'],
+  },
+  schedule_disable: {
+    description: 'Disable (pause) a scheduled task without deleting it.',
+    properties: {
+      taskId: { type: 'string', description: 'Task ID.' },
+    },
+    required: ['taskId'],
+  },
+  schedule_run_now: {
+    description: 'Immediately run a scheduled task once.',
+    properties: {
+      taskId: { type: 'string', description: 'Task ID.' },
+    },
+    required: ['taskId'],
+  },
+
+  // ---------------------------------------------------------------------------
+  // Multi-agent Orchestration
+  // ---------------------------------------------------------------------------
+  agent_spawn: {
+    description: 'Spawn a sub-agent to complete a focused sub-task independently. Returns the sub-agent\'s final answer.',
+    properties: {
+      prompt:       { type: 'string', description: 'Task for the sub-agent to complete.' },
+      tools:        { type: 'array',  description: 'Restrict sub-agent to these tool names (omit for all tools).', items: { type: 'string' } },
+      maxTurns:     { type: 'number', description: 'Max turns for sub-agent (default: 15).' },
+      systemPrompt: { type: 'string', description: 'Optional system prompt override for sub-agent.' },
+    },
+    required: ['prompt'],
+  },
+  agent_fanout: {
+    description: 'Run multiple prompts in parallel using independent sub-agents. Use for parallel research, analysis, or generation.',
+    properties: {
+      prompts:  { type: 'array',  description: 'Array of prompts to run in parallel.', items: { type: 'string' } },
+      tools:    { type: 'array',  description: 'Tool restriction (shared by all).', items: { type: 'string' } },
+      maxTurns: { type: 'number', description: 'Max turns per agent (default: 15).' },
+    },
+    required: ['prompts'],
+  },
+  agent_map: {
+    description: 'Apply a prompt template to each item in an array using parallel sub-agents. Use {{item}} as the placeholder.',
+    properties: {
+      template: { type: 'string', description: 'Prompt template. Use {{item}} for the current item.' },
+      items:    { type: 'array',  description: 'Array of items to process.', items: { type: 'string' } },
+      tools:    { type: 'array',  description: 'Tool restriction.', items: { type: 'string' } },
+      maxTurns: { type: 'number', description: 'Max turns per agent (default: 15).' },
+    },
+    required: ['template', 'items'],
+  },
+  agent_reduce: {
+    description: 'Combine multiple text results into one synthesized output using a sub-agent.',
+    properties: {
+      results:       { type: 'array',  description: 'Array of text results to combine.', items: { type: 'string' } },
+      combinePrompt: { type: 'string', description: 'Instructions for how to combine/synthesize the results.' },
+      maxTurns:      { type: 'number', description: 'Max turns (default: 10).' },
+    },
+    required: ['results'],
+  },
+
+  // ── Excel Master Tools ────────────────────────────────────────────────
+
+  excel_list_templates: {
+    description: 'List available Excel dashboard templates with their industries and default themes.',
+    properties: {},
+    required: [],
+  },
+
+  excel_list_themes: {
+    description: 'List available Excel dashboard color themes.',
+    properties: {},
+    required: [],
+  },
+
+  excel_profile_data: {
+    description: 'Profile a CSV/XLSX dataset: column types, row count, sample values, distributions. Use this before building dashboards to understand the data.',
+    properties: {
+      path: { type: 'string', description: 'Absolute path to the CSV or XLSX file.' },
+    },
+    required: ['path'],
+  },
+
+  excel_auto_build: {
+    description: 'Auto-build a full Excel dashboard from CSV/XLSX data. Uses AI to select template, theme, KPIs, and charts. Returns a session_id for further editing with other excel_* tools.',
+    properties: {
+      path: { type: 'string', description: 'Absolute path to the CSV or XLSX file.' },
+      output_path: { type: 'string', description: 'Output XLSX path (default: same directory as input, with _dashboard suffix).' },
+      template: { type: 'string', description: 'Template key (executive_summary, hr_analytics, dark_operational, financial, supply_chain, marketing, minimal_clean). Default: auto-selected.' },
+      theme: { type: 'string', description: 'Color theme key (corporate_blue, hr_purple, dark_mode, supply_green, finance_green, marketing_orange, slate_minimal, executive_navy).' },
+    },
+    required: ['path'],
+  },
+
+  excel_add_chart: {
+    description: 'Add a chart to the Excel dashboard. Supports bar, line, pie, doughnut, area, scatter, bar_horizontal, and combo types.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID returned by excel_auto_build.' },
+      type: { type: 'string', enum: ['bar', 'line', 'pie', 'doughnut', 'area', 'scatter', 'bar_horizontal', 'combo'], description: 'Chart type.' },
+      x_column: { type: 'string', description: 'Column for x-axis / categories.' },
+      y_columns: { type: 'array', items: { type: 'string' }, description: 'Column(s) for y-axis values.' },
+      title: { type: 'string', description: 'Chart title.' },
+      aggregation: { type: 'string', enum: ['sum', 'avg', 'count', 'max', 'min', 'median'], description: 'Aggregation function (default: sum).' },
+      width: { type: 'string', enum: ['full', 'half'], description: 'Chart width (default: half).' },
+      side: { type: 'string', enum: ['left', 'right'], description: 'Side for half-width charts (default: left).' },
+      top_n: { type: 'integer', description: 'Show only top N categories (0 = all).' },
+      show_data_labels: { type: 'boolean', description: 'Show data labels on chart (default: true).' },
+      sheet: { type: 'string', description: 'Target sheet name (default: Dashboard).' },
+      position: { type: 'string', description: "Position: 'end', 'after:<id>', 'row:<N>'." },
+    },
+    required: ['session_id', 'type', 'x_column', 'y_columns'],
+  },
+
+  excel_modify_object: {
+    description: 'Modify any existing dashboard object by its ID. Pass only the fields you want to change. Use excel_query first to discover object IDs.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      object_id: { type: 'string', description: 'ID of the object to modify (e.g. chart_0, table_0).' },
+      changes: { type: 'object', description: 'Fields to update. For charts: type, title, x_column, y_columns, aggregation, width, side. For tables: columns, max_rows. For KPI rows: kpis (full list). For text: content, style.' },
+      sheet: { type: 'string', description: 'Sheet where the object lives (default: Dashboard).' },
+    },
+    required: ['session_id', 'object_id', 'changes'],
+  },
+
+  excel_remove_object: {
+    description: 'Remove an object from the dashboard by its ID.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      object_id: { type: 'string', description: 'ID of the object to remove.' },
+      sheet: { type: 'string', description: 'Sheet name (default: searches all sheets).' },
+    },
+    required: ['session_id', 'object_id'],
+  },
+
+  excel_add_kpi_row: {
+    description: 'Add a row of KPI metric tiles to the dashboard.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      kpis: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            label: { type: 'string', description: 'Display label.' },
+            column: { type: 'string', description: 'Data column to aggregate.' },
+            aggregation: { type: 'string', enum: ['sum', 'avg', 'count', 'max', 'min', 'median', 'distinct_count'], description: 'Aggregation (default: sum).' },
+            format: { type: 'string', enum: ['number', 'currency', 'percentage', 'decimal', 'integer'], description: 'Display format.' },
+            prefix: { type: 'string', description: 'Prefix (e.g. "$").' },
+            suffix: { type: 'string', description: 'Suffix (e.g. "%").' },
+          },
+          required: ['label', 'column'],
+        },
+        description: 'List of KPI definitions.',
+      },
+      sheet: { type: 'string', description: 'Target sheet.' },
+      position: { type: 'string', description: 'Position.' },
+    },
+    required: ['session_id', 'kpis'],
+  },
+
+  excel_add_table: {
+    description: 'Add a data table or pivot table to the dashboard.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      table_type: { type: 'string', enum: ['data', 'pivot'], description: 'Table type (default: data).' },
+      columns: { type: 'array', items: { type: 'string' }, description: 'Columns to show (for data tables).' },
+      max_rows: { type: 'integer', description: 'Max rows to display (default: 15).' },
+      show_conditional: { type: 'boolean', description: 'Show conditional formatting (default: true).' },
+      index_col: { type: 'string', description: 'Row grouping column (for pivot tables).' },
+      value_col: { type: 'string', description: 'Value column (for pivot tables).' },
+      columns_col: { type: 'string', description: 'Cross-tab column (for pivot tables).' },
+      agg: { type: 'string', enum: ['sum', 'avg', 'count', 'max', 'min', 'median'], description: 'Aggregation for pivot (default: sum).' },
+      sheet: { type: 'string', description: 'Target sheet.' },
+      position: { type: 'string', description: 'Position.' },
+    },
+    required: ['session_id'],
+  },
+
+  excel_add_content: {
+    description: 'Add a title bar, section header, or text block to the dashboard.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      content_type: { type: 'string', enum: ['title', 'section_header', 'text'], description: 'Type of content.' },
+      text: { type: 'string', description: 'Content text.' },
+      subtitle: { type: 'string', description: 'Subtitle (for title type only).' },
+      style: { type: 'string', enum: ['body', 'heading', 'insight', 'footnote'], description: 'Text style (for text type).' },
+      color: { type: 'string', description: 'Hex color override (for section headers).' },
+      sheet: { type: 'string', description: 'Target sheet.' },
+      position: { type: 'string', description: 'Position.' },
+    },
+    required: ['session_id', 'content_type', 'text'],
+  },
+
+  excel_write_cells: {
+    description: 'Write values, formulas, and formatting to individual cells.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      writes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            cell: { type: 'string', description: "Cell address like 'A1', 'B3'." },
+            value: { description: "Value: string, number, or formula starting with '='." },
+            bold: { type: 'boolean' },
+            italic: { type: 'boolean' },
+            font_size: { type: 'number' },
+            font_color: { type: 'string', description: "Hex color like '#FF0000'." },
+            bg_color: { type: 'string', description: 'Background hex color.' },
+            num_format: { type: 'string', description: "Number format like '#,##0.00'." },
+            align: { type: 'string', enum: ['left', 'center', 'right'] },
+            border: { type: 'integer', description: 'Border style (1=thin, 2=medium, 5=thick).' },
+          },
+          required: ['cell'],
+        },
+        description: 'List of cell writes.',
+      },
+      sheet: { type: 'string', description: 'Target sheet (default: Dashboard).' },
+    },
+    required: ['session_id', 'writes'],
+  },
+
+  excel_format_range: {
+    description: 'Apply formatting to a range of cells (bold, colors, borders, number format).',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      range: { type: 'string', description: "Range like 'A1:F20'." },
+      bold: { type: 'boolean' },
+      italic: { type: 'boolean' },
+      font_size: { type: 'number' },
+      font_color: { type: 'string' },
+      bg_color: { type: 'string' },
+      num_format: { type: 'string' },
+      align: { type: 'string', enum: ['left', 'center', 'right'] },
+      valign: { type: 'string', enum: ['top', 'vcenter', 'bottom'] },
+      border: { type: 'integer' },
+      text_wrap: { type: 'boolean' },
+      sheet: { type: 'string' },
+    },
+    required: ['session_id', 'range'],
+  },
+
+  excel_sheet_op: {
+    description: 'Create, rename, delete, reorder sheets. Set tab color, hide/show.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      operation: { type: 'string', enum: ['create', 'rename', 'delete', 'reorder', 'set_tab_color', 'hide', 'show'], description: 'Sheet operation type.' },
+      sheet: { type: 'string', description: 'Sheet name to operate on.' },
+      new_name: { type: 'string', description: 'New name (for rename).' },
+      position: { type: 'integer', description: 'New position index (for reorder).' },
+      tab_color: { type: 'string', description: 'Hex tab color (for set_tab_color).' },
+    },
+    required: ['session_id', 'operation'],
+  },
+
+  excel_row_col_op: {
+    description: 'Resize or hide/show rows and columns.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      target: { type: 'string', enum: ['row', 'column'] },
+      operation: { type: 'string', enum: ['resize', 'hide', 'show'] },
+      index: { type: 'integer', description: 'Row or column index (0-based).' },
+      end_index: { type: 'integer', description: 'End index for range operations (inclusive).' },
+      size: { type: 'number', description: 'Height (rows) or width (columns) in points.' },
+      sheet: { type: 'string' },
+    },
+    required: ['session_id', 'target', 'operation', 'index'],
+  },
+
+  excel_add_feature: {
+    description: 'Add Excel features: conditional formatting, data validation, freeze panes, zoom, merge cells, hyperlinks, comments, images.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      feature: { type: 'string', enum: ['conditional_format', 'data_validation', 'freeze_panes', 'zoom', 'merge', 'hyperlink', 'comment', 'image'], description: 'Feature type.' },
+      range: { type: 'string', description: "Cell or range (e.g. 'A1:F20')." },
+      cell: { type: 'string', description: 'Single cell address (for hyperlink, comment, image).' },
+      rule_type: { type: 'string', enum: ['3_color_scale', '2_color_scale', 'data_bar', 'icon_set', 'cell_is'], description: 'Conditional format rule type.' },
+      criteria: { type: 'string', description: "Criteria for cell_is rules (e.g. '>', 'between')." },
+      value: { description: 'Threshold value for cell_is rules.' },
+      min_color: { type: 'string' },
+      mid_color: { type: 'string' },
+      max_color: { type: 'string' },
+      bar_color: { type: 'string', description: 'Data bar color.' },
+      validate: { type: 'string', enum: ['list', 'whole', 'decimal', 'custom'], description: 'Data validation type.' },
+      source: { type: 'array', items: { type: 'string' }, description: 'List values for validation.' },
+      freeze_row: { type: 'integer' },
+      freeze_col: { type: 'integer' },
+      zoom_level: { type: 'integer', description: 'Zoom percentage (10-400).' },
+      merge_value: { type: 'string', description: 'Text to write in merged cell.' },
+      format: { type: 'object', description: 'Format dict for merge.' },
+      url: { type: 'string' },
+      display_text: { type: 'string' },
+      comment_text: { type: 'string' },
+      author: { type: 'string' },
+      image_path: { type: 'string' },
+      x_scale: { type: 'number' },
+      y_scale: { type: 'number' },
+      sheet: { type: 'string' },
+    },
+    required: ['session_id', 'feature'],
+  },
+
+  excel_change_theme: {
+    description: 'Change the workbook color theme.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      theme: { type: 'string', enum: ['corporate_blue', 'hr_purple', 'dark_mode', 'supply_green', 'finance_green', 'marketing_orange', 'slate_minimal', 'executive_navy'], description: 'Color theme.' },
+    },
+    required: ['session_id', 'theme'],
+  },
+
+  excel_query: {
+    description: 'Read-only: list objects, get object details, data summary, list sheets, inspect registry. Use this to discover object IDs before modifying.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      query: { type: 'string', enum: ['list_objects', 'object_details', 'data_summary', 'list_sheets', 'registry_snapshot'], description: 'What to query.' },
+      object_id: { type: 'string', description: 'Object ID (for object_details).' },
+      sheet: { type: 'string', description: 'Filter by sheet name.' },
+    },
+    required: ['session_id', 'query'],
+  },
+
+  excel_undo: {
+    description: 'Undo the last action in the Excel dashboard session.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+    },
+    required: ['session_id'],
+  },
+
+  excel_redo: {
+    description: 'Redo the last undone action in the Excel dashboard session.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+    },
+    required: ['session_id'],
+  },
+
+  excel_save: {
+    description: 'Render and save the current Excel dashboard session to XLSX.',
+    properties: {
+      session_id: { type: 'string', description: 'Session ID.' },
+      output_path: { type: 'string', description: 'Output file path (default: uses session default).' },
+    },
+    required: ['session_id'],
   },
 };
 

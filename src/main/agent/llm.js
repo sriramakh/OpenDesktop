@@ -34,22 +34,14 @@ const MODEL_CATALOG = {
       { id: 'llama3.2',           name: 'Llama 3.2 3B',        ctx: 131072 },
       { id: 'llama3.1',           name: 'Llama 3.1 8B',        ctx: 131072 },
       { id: 'llama3.1:70b',       name: 'Llama 3.1 70B',       ctx: 131072 },
-      { id: 'llama3',             name: 'Llama 3 8B',          ctx: 8192   },
       { id: 'qwen2.5',            name: 'Qwen 2.5 7B',         ctx: 131072 },
       { id: 'qwen2.5:72b',        name: 'Qwen 2.5 72B',        ctx: 131072 },
       { id: 'qwen3',              name: 'Qwen 3 8B',           ctx: 131072 },
       { id: 'mistral',            name: 'Mistral 7B',          ctx: 32768  },
       { id: 'mixtral',            name: 'Mixtral 8x7B',        ctx: 32768  },
       { id: 'mistral-nemo',       name: 'Mistral Nemo 12B',    ctx: 131072 },
-      { id: 'codellama',          name: 'Code Llama 7B',       ctx: 16384  },
-      { id: 'deepseek-coder-v2',  name: 'DeepSeek Coder V2',   ctx: 131072 },
-      { id: 'deepseek-r1',        name: 'DeepSeek R1 7B',      ctx: 131072 },
-      { id: 'phi4',               name: 'Phi-4 14B',           ctx: 16384  },
-      { id: 'phi3',               name: 'Phi-3 3.8B',          ctx: 4096   },
-      { id: 'gemma2',             name: 'Gemma 2 9B',          ctx: 8192   },
       { id: 'gemma3',             name: 'Gemma 3 12B',         ctx: 131072 },
       { id: 'command-r',          name: 'Command R 35B',       ctx: 131072 },
-      { id: 'llama3.2-vision',    name: 'Llama 3.2 Vision 11B', ctx: 131072 },
     ],
   },
   openai: {
@@ -63,7 +55,6 @@ const MODEL_CATALOG = {
       { id: 'gpt-5',              name: 'GPT-5',               ctx: 2048000 },
       { id: 'gpt-5-mini',         name: 'GPT-5 Mini',          ctx: 1048576 },
       { id: 'gpt-5-nano',         name: 'GPT-5 Nano',          ctx: 1048576 },
-      { id: 'gpt-4.5-preview',    name: 'GPT-4.5 Preview',     ctx: 128000  },
       { id: 'gpt-4.1',            name: 'GPT-4.1',             ctx: 1047576 },
       { id: 'gpt-4.1-mini',       name: 'GPT-4.1 Mini',        ctx: 1047576 },
       { id: 'gpt-4.1-nano',       name: 'GPT-4.1 Nano',        ctx: 1047576 },
@@ -71,11 +62,8 @@ const MODEL_CATALOG = {
       { id: 'gpt-4o-mini',        name: 'GPT-4o Mini',         ctx: 128000 },
       { id: 'o3',                 name: 'o3',                  ctx: 200000 },
       { id: 'o3-mini',            name: 'o3 Mini',             ctx: 200000 },
-      { id: 'o4-pro',             name: 'o4 Pro',              ctx: 200000 },
-      { id: 'o4',                 name: 'o4',                  ctx: 200000 },
       { id: 'o4-mini',            name: 'o4 Mini',             ctx: 200000 },
       { id: 'o1',                 name: 'o1',                  ctx: 200000 },
-      { id: 'o1-mini',            name: 'o1 Mini',             ctx: 128000 },
       { id: 'gpt-4-turbo',        name: 'GPT-4 Turbo',         ctx: 128000 },
       { id: 'gpt-3.5-turbo',      name: 'GPT-3.5 Turbo',       ctx: 16385  },
     ],
@@ -104,16 +92,12 @@ const MODEL_CATALOG = {
     endpoint: 'https://generativelanguage.googleapis.com',
     keyPrefix: 'AI',
     models: [
-      { id: 'gemini-3.0-pro',         name: 'Gemini 3.0 Pro',          ctx: 2097152 },
-      { id: 'gemini-3.0-flash-preview', name: 'Gemini 3.0 Flash Preview',ctx: 2097152 },
-      { id: 'gemini-3.0-flash',       name: 'Gemini 3.0 Flash',        ctx: 2097152 },
-      { id: 'gemini-3.1-pro',         name: 'Gemini 3.1 Pro',          ctx: 1048576 },
-      { id: 'gemini-2.5-pro',         name: 'Gemini 2.5 Pro',          ctx: 1048576 },
-      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash',      ctx: 1048576 },
-      { id: 'gemini-2.0-flash',               name: 'Gemini 2.0 Flash',      ctx: 1048576 },
-      { id: 'gemini-2.0-flash-lite',          name: 'Gemini 2.0 Flash Lite', ctx: 1048576 },
-      { id: 'gemini-1.5-pro',                 name: 'Gemini 1.5 Pro',        ctx: 2097152 },
-      { id: 'gemini-1.5-flash',               name: 'Gemini 1.5 Flash',      ctx: 1048576 },
+      { id: 'gemini-3.1-pro-preview',    name: 'Gemini 3.1 Pro',          ctx: 2097152 },
+      { id: 'gemini-3-flash-preview',    name: 'Gemini 3 Flash',          ctx: 2097152 },
+      { id: 'gemini-2.5-pro',            name: 'Gemini 2.5 Pro',          ctx: 1048576 },
+      { id: 'gemini-2.5-flash',          name: 'Gemini 2.5 Flash',        ctx: 1048576 },
+      { id: 'gemini-2.5-flash-lite',     name: 'Gemini 2.5 Flash Lite',   ctx: 1048576 },
+      { id: 'gemini-2.0-flash',          name: 'Gemini 2.0 Flash',        ctx: 1048576 },
     ],
   },
   deepseek: {
@@ -165,8 +149,6 @@ const MODEL_CATALOG = {
       { id: 'llama-3.3-70b-versatile',    name: 'Llama 3.3 70B',       ctx: 131072 },
       { id: 'llama-3.1-8b-instant',       name: 'Llama 3.1 8B',        ctx: 131072 },
       { id: 'llama-3.2-90b-vision-preview', name: 'Llama 3.2 90B Vision', ctx: 131072 },
-      { id: 'mixtral-8x7b-32768',         name: 'Mixtral 8x7B',        ctx: 32768  },
-      { id: 'gemma2-9b-it',               name: 'Gemma 2 9B',          ctx: 8192   },
       { id: 'qwen-qwq-32b',              name: 'Qwen QwQ 32B',        ctx: 131072 },
       { id: 'deepseek-r1-distill-llama-70b', name: 'DeepSeek R1 70B',  ctx: 131072 },
     ],
@@ -187,20 +169,6 @@ const MODEL_CATALOG = {
       { id: 'deepseek-ai/DeepSeek-V3',        name: 'DeepSeek V3',          ctx: 65536  },
     ],
   },
-  perplexity: {
-    label: 'Perplexity',
-    requiresKey: true,
-    endpoint: 'https://api.perplexity.ai',
-    keyPrefix: 'pplx-',
-    openaiCompatible: true,
-    models: [
-      { id: 'sonar-pro',          name: 'Sonar Pro',            ctx: 200000 },
-      { id: 'sonar',              name: 'Sonar',                ctx: 128000 },
-      { id: 'sonar-reasoning-pro', name: 'Sonar Reasoning Pro', ctx: 128000 },
-      { id: 'sonar-reasoning',    name: 'Sonar Reasoning',      ctx: 128000 },
-      { id: 'sonar-deep-research', name: 'Sonar Deep Research', ctx: 128000 },
-    ],
-  },
   minimax: {
     label: 'MiniMax',
     requiresKey: true,
@@ -210,12 +178,59 @@ const MODEL_CATALOG = {
     models: [
       { id: 'MiniMax-M2.5',    name: 'MiniMax M2.5',    ctx: 1000000 },
       { id: 'MiniMax-M2',      name: 'MiniMax M2',      ctx: 1000000 },
-      { id: 'MiniMax-Text-01', name: 'MiniMax Text-01', ctx: 1000000 },
     ],
   },
 };
 
 function getModelCatalog() { return MODEL_CATALOG; }
+
+// ---------------------------------------------------------------------------
+// Token costs (USD per token, approximate)
+// ---------------------------------------------------------------------------
+
+const TOKEN_COSTS = {
+  // Anthropic
+  'claude-opus-4-6':              { input: 15e-6,   output: 75e-6   },
+  'claude-opus-4-5':              { input: 15e-6,   output: 75e-6   },
+  'claude-sonnet-4-6':            { input: 3e-6,    output: 15e-6   },
+  'claude-sonnet-4-5':            { input: 3e-6,    output: 15e-6   },
+  'claude-3-7-sonnet-20250219':   { input: 3e-6,    output: 15e-6   },
+  'claude-3-5-sonnet-20241022':   { input: 3e-6,    output: 15e-6   },
+  'claude-3-5-haiku-20241022':    { input: 0.8e-6,  output: 4e-6    },
+  'claude-3-opus-20240229':       { input: 15e-6,   output: 75e-6   },
+  'claude-3-haiku-20240307':      { input: 0.25e-6, output: 1.25e-6 },
+  // OpenAI
+  'gpt-4o':                       { input: 2.5e-6,  output: 10e-6   },
+  'gpt-4o-mini':                  { input: 0.15e-6, output: 0.6e-6  },
+  'gpt-4-turbo':                  { input: 10e-6,   output: 30e-6   },
+  'gpt-4.1':                      { input: 2e-6,    output: 8e-6    },
+  'gpt-4.1-mini':                 { input: 0.4e-6,  output: 1.6e-6  },
+  'gpt-3.5-turbo':                { input: 0.5e-6,  output: 1.5e-6  },
+  'o3':                           { input: 10e-6,   output: 40e-6   },
+  'o3-mini':                      { input: 1.1e-6,  output: 4.4e-6  },
+  'o4-mini':                      { input: 1.1e-6,  output: 4.4e-6  },
+  // Google
+  'gemini-2.5-pro':               { input: 1.25e-6, output: 10e-6   },
+  'gemini-2.5-flash':             { input: 0.075e-6,output: 0.3e-6  },
+  'gemini-2.0-flash':             { input: 0.1e-6,  output: 0.4e-6  },
+  // DeepSeek
+  'deepseek-chat':                { input: 0.27e-6, output: 1.1e-6  },
+  'deepseek-reasoner':            { input: 0.55e-6, output: 2.19e-6 },
+  // Groq (fast inference pricing)
+  'llama-3.3-70b-versatile':      { input: 0.59e-6, output: 0.79e-6 },
+};
+
+/**
+ * Estimate cost in USD for a given model and usage.
+ * @param {string} model
+ * @param {{ inputTokens: number, outputTokens: number }} usage
+ * @returns {number} cost in USD
+ */
+function estimateCost(model, usage) {
+  const costs = TOKEN_COSTS[model];
+  if (!costs || !usage) return 0;
+  return (usage.inputTokens || 0) * costs.input + (usage.outputTokens || 0) * costs.output;
+}
 
 // ---------------------------------------------------------------------------
 // Module-level settings
@@ -229,6 +244,44 @@ let settings = {
 };
 
 let _keyStore = null;
+
+// Environment variable names for each provider (fallback when KeyStore has no key)
+const ENV_KEY_MAP = {
+  openai:     ['OPENAI_API_KEY'],
+  anthropic:  ['ANTHROPIC_API_KEY'],
+  google:     ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'GEMINI_API_KEY'],
+  deepseek:   ['DEEPSEEK_API_KEY'],
+  xai:        ['XAI_API_KEY'],
+  mistral:    ['MISTRAL_API_KEY'],
+  groq:       ['GROQ_API_KEY'],
+  together:   ['TOGETHER_API_KEY'],
+  minimax:    ['MINIMAX_API_TOKEN', 'MINIMAX_API_KEY'],
+};
+
+/**
+ * Resolve an API key for a given provider.
+ * Priority: 1. explicit option  2. KeyStore  3. process.env
+ */
+function resolveApiKey(provider, explicitKey) {
+  if (explicitKey) return explicitKey;
+
+  // KeyStore (encrypted)
+  if (_keyStore && provider !== 'ollama') {
+    const ksKey = _keyStore.getKey(provider);
+    if (ksKey) return ksKey;
+  }
+
+  // Environment variable fallback
+  const envNames = ENV_KEY_MAP[provider];
+  if (envNames) {
+    for (const name of envNames) {
+      const val = process.env[name];
+      if (val) return val;
+    }
+  }
+
+  return '';
+}
 
 function configure(newSettings) {
   settings = { ...settings, ...newSettings };
@@ -273,13 +326,10 @@ async function callLLM(systemPrompt, userMessage, options = {}) {
   const catalogEntry = MODEL_CATALOG[provider];
   const endpoint = merged.endpoint || catalogEntry?.endpoint || '';
 
-  let apiKey = merged.apiKey || '';
-  if (!apiKey && _keyStore && provider !== 'ollama') {
-    apiKey = _keyStore.getKey(provider) || '';
-  }
+  const apiKey = resolveApiKey(provider, merged.apiKey);
 
   if (catalogEntry?.requiresKey && !apiKey) {
-    throw new Error(`No API key configured for ${catalogEntry.label}. Add one in Settings → LLM.`);
+    throw new Error(`No API key configured for ${catalogEntry.label}. Add one in Settings → LLM, or set the ${(ENV_KEY_MAP[provider] || [provider.toUpperCase() + '_API_KEY']).join(' / ')} environment variable.`);
   }
 
   switch (provider) {
@@ -298,7 +348,7 @@ async function callLLM(systemPrompt, userMessage, options = {}) {
         '/anthropic/v1/messages'
       );
     default: {
-      // All OpenAI-compatible providers (deepseek, xai, mistral, groq, together, perplexity, etc.)
+      // All OpenAI-compatible providers (deepseek, xai, mistral, groq, together, etc.)
       if (catalogEntry?.openaiCompatible || provider === 'deepseek') {
         return _openAISimple(
           endpoint || catalogEntry?.endpoint,
@@ -331,13 +381,10 @@ async function callWithTools(systemPrompt, messages, tools, options = {}) {
   const catalogEntry = MODEL_CATALOG[provider];
   const endpoint = merged.endpoint || catalogEntry?.endpoint || '';
 
-  let apiKey = merged.apiKey || '';
-  if (!apiKey && _keyStore && provider !== 'ollama') {
-    apiKey = _keyStore.getKey(provider) || '';
-  }
+  const apiKey = resolveApiKey(provider, merged.apiKey);
 
   if (catalogEntry?.requiresKey && !apiKey) {
-    throw new Error(`No API key configured for ${catalogEntry.label}. Add one in Settings → LLM.`);
+    throw new Error(`No API key configured for ${catalogEntry.label}. Add one in Settings → LLM, or set the ${(ENV_KEY_MAP[provider] || [provider.toUpperCase() + '_API_KEY']).join(' / ')} environment variable.`);
   }
 
   switch (provider) {
@@ -356,7 +403,7 @@ async function callWithTools(systemPrompt, messages, tools, options = {}) {
         { ...options, _messagesPath: '/anthropic/v1/messages' }
       );
     default: {
-      // All OpenAI-compatible providers (deepseek, xai, mistral, groq, together, perplexity, etc.)
+      // All OpenAI-compatible providers (deepseek, xai, mistral, groq, together, etc.)
       if (catalogEntry?.openaiCompatible || provider === 'deepseek') {
         return _openAIWithTools(
           endpoint || catalogEntry?.endpoint,
@@ -484,48 +531,103 @@ async function _anthropicWithTools(
 
   const body = JSON.stringify({
     model,
-    system: systemPrompt,
-    messages: anthropicMessages,
+    system:     systemPrompt,
+    messages:   anthropicMessages,
     tools,
     max_tokens: maxTokens,
     temperature,
+    stream:     true,
   });
 
-  const rawResponse = await httpRequest(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body,
-  });
-
-  const data = JSON.parse(rawResponse);
-
-  if (data.error) {
-    throw new Error(`Anthropic API error: ${data.error.message || JSON.stringify(data.error)}`);
+  const headers = {
+    'Content-Type':      'application/json',
+    'x-api-key':         apiKey,
+    'anthropic-version': '2023-06-01',
+  };
+  // Forward any extra headers (e.g. anthropic-beta for PDF support)
+  if (options?.headers) {
+    for (const [k, v] of Object.entries(options.headers)) headers[k] = v;
   }
 
-  const textBlocks    = (data.content || []).filter((b) => b.type === 'text');
-  const toolUseBlocks = (data.content || []).filter((b) => b.type === 'tool_use');
+  let fullText              = '';
+  const contentBlocks       = {}; // index → { type, id, name, text, inputJson }
+  let stopReason            = null;
+  let usage                 = null;
 
-  const text = textBlocks.map((b) => b.text).join('');
+  await httpStreamRequest(url, { method: 'POST', headers, body }, (line) => {
+    if (!line.startsWith('data: ')) return;
+    const raw = line.slice(6).trim();
+    if (!raw) return;
+    let ev;
+    try { ev = JSON.parse(raw); } catch { return; }
 
-  // Emit text tokens if callback provided (simulated since we don't stream yet)
-  if (options.onTextToken && text) {
-    options.onTextToken(text);
+    switch (ev.type) {
+      case 'message_start':
+        if (ev.message?.usage) {
+          usage = { inputTokens: ev.message.usage.input_tokens || 0, outputTokens: 0 };
+        }
+        break;
+
+      case 'content_block_start': {
+        const blk = ev.content_block;
+        contentBlocks[ev.index] = {
+          type:      blk.type,
+          id:        blk.id   || null,
+          name:      blk.name || null,
+          text:      blk.type === 'text'     ? (blk.text || '') : '',
+          inputJson: blk.type === 'tool_use' ? '' : null,
+        };
+        break;
+      }
+
+      case 'content_block_delta': {
+        const blk   = contentBlocks[ev.index];
+        if (!blk) break;
+        const delta = ev.delta;
+        if (delta.type === 'text_delta' && delta.text) {
+          blk.text += delta.text;
+          fullText  += delta.text;
+          if (options?.onTextToken) options.onTextToken(delta.text);
+        } else if (delta.type === 'input_json_delta' && delta.partial_json != null) {
+          blk.inputJson += delta.partial_json;
+        }
+        break;
+      }
+
+      case 'message_delta':
+        if (ev.delta?.stop_reason) stopReason = ev.delta.stop_reason;
+        if (ev.usage?.output_tokens != null) {
+          if (!usage) usage = { inputTokens: 0, outputTokens: 0 };
+          usage.outputTokens = ev.usage.output_tokens;
+        }
+        break;
+
+      default:
+        break;
+    }
+  });
+
+  // Reconstruct rawContent and toolCalls from accumulated blocks (preserve order)
+  const rawContent = [];
+  const toolCalls  = [];
+
+  for (const [, blk] of Object.entries(contentBlocks).sort(([a], [b]) => Number(a) - Number(b))) {
+    if (blk.type === 'text' && blk.text) {
+      rawContent.push({ type: 'text', text: blk.text });
+    } else if (blk.type === 'tool_use') {
+      let input = {};
+      try { input = JSON.parse(blk.inputJson || '{}'); } catch {}
+      rawContent.push({ type: 'tool_use', id: blk.id, name: blk.name, input });
+      toolCalls.push({ id: blk.id, name: blk.name, input });
+    }
   }
 
   return {
-    text,
-    rawContent: data.content,
-    toolCalls: toolUseBlocks.map((b) => ({
-      id: b.id,
-      name: b.name,
-      input: b.input,
-    })),
-    stopReason: data.stop_reason,
+    text:       fullText,
+    rawContent: rawContent.length > 0 ? rawContent : fullText,
+    toolCalls,
+    stopReason,
+    usage,
   };
 }
 
@@ -539,84 +641,95 @@ async function _openAIWithTools(
   const url = new URL('/v1/chat/completions', endpoint || MODEL_CATALOG.openai.endpoint);
   const openAIMessages = _internalToOpenAIMessages(messages);
 
-  // Prepend system message
   const allMessages = [
     { role: 'system', content: systemPrompt },
     ...openAIMessages,
   ];
 
-  // Reasoning models (o1, o3, etc.) require max_completion_tokens and don't support temperature
-  const isReasoningModel = /^o[0-9]/.test(model);
+  // Reasoning models: don't support temperature, tool_choice, or max_tokens
+  // Includes o-series (o1, o3, o4-mini) and GPT-5 series (gpt-5, gpt-5-mini, etc.)
+  const isReasoningModel = /^(o[0-9]|gpt-5)/.test(model);
 
-  const bodyObj = {
-    model,
-    messages: allMessages,
-  };
+  const bodyObj = { model, messages: allMessages, stream: true };
 
+  if (!isReasoningModel) {
+    bodyObj.temperature = temperature;
+  }
+  // Reasoning models require max_completion_tokens; all other GPT models use max_tokens
   if (isReasoningModel) {
     bodyObj.max_completion_tokens = maxTokens;
   } else {
-    bodyObj.temperature = temperature;
     bodyObj.max_tokens = maxTokens;
   }
 
-  // Only attach tools if there are any
   if (tools && tools.length > 0) {
     bodyObj.tools = tools;
-    if (!isReasoningModel) {
-      bodyObj.tool_choice = 'auto';
+    if (!isReasoningModel) bodyObj.tool_choice = 'auto';
+  }
+
+  let fullText       = '';
+  const toolCallsAcc = {}; // index → { id, name, argumentsJson }
+  let stopReason     = null;
+  let usage          = null;
+
+  await httpStreamRequest(url, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body:    JSON.stringify(bodyObj),
+  }, (line) => {
+    if (!line.startsWith('data: ')) return;
+    const raw = line.slice(6).trim();
+    if (raw === '[DONE]' || !raw) return;
+    let ev;
+    try { ev = JSON.parse(raw); } catch { return; }
+
+    if (ev.error) throw new Error(`OpenAI API error: ${ev.error.message || JSON.stringify(ev.error)}`);
+
+    // Usage can appear in a trailing chunk (some providers send it after [DONE])
+    if (ev.usage) {
+      usage = { inputTokens: ev.usage.prompt_tokens || 0, outputTokens: ev.usage.completion_tokens || 0 };
     }
-  }
 
-  const rawResponse = await httpRequest(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(bodyObj),
+    const delta = ev.choices?.[0]?.delta;
+    if (!delta) return;
+
+    if (delta.content) {
+      fullText += delta.content;
+      if (options?.onTextToken) options.onTextToken(delta.content);
+    }
+
+    if (delta.tool_calls) {
+      for (const tc of delta.tool_calls) {
+        const idx = tc.index ?? 0;
+        if (!toolCallsAcc[idx]) toolCallsAcc[idx] = { id: '', name: '', argumentsJson: '' };
+        if (tc.id)                 toolCallsAcc[idx].id            += tc.id;
+        if (tc.function?.name)     toolCallsAcc[idx].name          += tc.function.name;
+        if (tc.function?.arguments) toolCallsAcc[idx].argumentsJson += tc.function.arguments;
+      }
+    }
+
+    const fr = ev.choices?.[0]?.finish_reason;
+    if (fr) stopReason = fr;
   });
-
-  const data = JSON.parse(rawResponse);
-
-  if (data.error) {
-    throw new Error(`OpenAI API error: ${data.error.message || JSON.stringify(data.error)}`);
-  }
-
-  const choice     = data.choices?.[0];
-  const message    = choice?.message || {};
-  const text       = message.content || '';
-  const toolCallsRaw = message.tool_calls || [];
-
-  if (options.onTextToken && text) {
-    options.onTextToken(text);
-  }
 
   // Build rawContent in Anthropic-compatible format for consistent history
   const rawContent = [];
-  if (text) rawContent.push({ type: 'text', text });
-  for (const tc of toolCallsRaw) {
-    rawContent.push({
-      type: 'tool_use',
-      id: tc.id,
-      name: tc.function.name,
-      input: (() => {
-        try { return JSON.parse(tc.function.arguments); } catch { return {}; }
-      })(),
-    });
+  const toolCalls  = [];
+
+  if (fullText) rawContent.push({ type: 'text', text: fullText });
+  for (const [, tc] of Object.entries(toolCallsAcc).sort(([a], [b]) => Number(a) - Number(b))) {
+    let input = {};
+    try { input = JSON.parse(tc.argumentsJson); } catch {}
+    rawContent.push({ type: 'tool_use', id: tc.id, name: tc.name, input });
+    toolCalls.push({ id: tc.id, name: tc.name, input });
   }
 
   return {
-    text,
-    rawContent: rawContent.length > 0 ? rawContent : text,
-    toolCalls: toolCallsRaw.map((tc) => ({
-      id: tc.id,
-      name: tc.function.name,
-      input: (() => {
-        try { return JSON.parse(tc.function.arguments); } catch { return {}; }
-      })(),
-    })),
-    stopReason: choice?.finish_reason,
+    text:       fullText,
+    rawContent: rawContent.length > 0 ? rawContent : fullText,
+    toolCalls,
+    stopReason,
+    usage,
   };
 }
 
@@ -631,8 +744,6 @@ async function _ollamaWithTools(
   const url = new URL('/api/chat', baseUrl);
 
   const ollamaMessages = _internalToOpenAIMessages(messages);
-
-  // Prepend system
   const allMessages = [
     { role: 'system', content: systemPrompt },
     ...ollamaMessages,
@@ -641,48 +752,67 @@ async function _ollamaWithTools(
   const bodyObj = {
     model,
     messages: allMessages,
-    stream: false,
-    options: { temperature, num_predict: maxTokens },
+    stream:   true,
+    options:  { temperature, num_predict: maxTokens },
   };
 
-  // Attach tools if the model likely supports them
-  if (tools && tools.length > 0) {
-    bodyObj.tools = tools;
-  }
+  if (tools && tools.length > 0) bodyObj.tools = tools;
 
-  const rawResponse = await httpRequest(url, {
-    method: 'POST',
+  let fullText     = '';
+  let finalMessage = null;
+  let finalUsage   = null;
+
+  await httpStreamRequest(url, {
+    method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(bodyObj),
+    body:    JSON.stringify(bodyObj),
+  }, (line) => {
+    if (!line.trim()) return;
+    let ev;
+    try { ev = JSON.parse(line); } catch { return; }
+
+    // Stream partial text chunks (not emitted on final done=true chunk)
+    const content = ev.message?.content;
+    if (content && !ev.done) {
+      fullText += content;
+      if (options?.onTextToken) options.onTextToken(content);
+    }
+
+    if (ev.done) {
+      finalMessage = ev.message || {};
+      // In tool-call scenarios, Ollama may withhold text until done=true
+      if (finalMessage.content && !fullText) {
+        fullText = finalMessage.content;
+        if (options?.onTextToken) options.onTextToken(fullText);
+      }
+      if (ev.prompt_eval_count || ev.eval_count) {
+        finalUsage = { inputTokens: ev.prompt_eval_count || 0, outputTokens: ev.eval_count || 0 };
+      }
+    }
   });
 
-  const data = JSON.parse(rawResponse);
-  const message = data.message || {};
-  const text = message.content || '';
-  const toolCallsRaw = message.tool_calls || [];
+  const toolCallsRaw = finalMessage?.tool_calls || [];
+  const rawContent   = [];
+  const toolCalls    = [];
 
-  if (options.onTextToken && text) {
-    options.onTextToken(text);
-  }
-
-  const rawContent = [];
-  if (text) rawContent.push({ type: 'text', text });
+  if (fullText) rawContent.push({ type: 'text', text: fullText });
   for (const tc of toolCallsRaw) {
-    rawContent.push({
-      type: 'tool_use',
-      id: `ollama_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      name: tc.function?.name || tc.name,
+    const block = {
+      type:  'tool_use',
+      id:    `ollama_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name:  tc.function?.name || tc.name,
       input: tc.function?.arguments || tc.arguments || {},
-    });
+    };
+    rawContent.push(block);
+    toolCalls.push({ id: block.id, name: block.name, input: block.input });
   }
 
   return {
-    text,
-    rawContent: rawContent.length > 0 ? rawContent : text,
-    toolCalls: rawContent
-      .filter((b) => b.type === 'tool_use')
-      .map((b) => ({ id: b.id, name: b.name, input: b.input })),
-    stopReason: data.done_reason || 'stop',
+    text:       fullText,
+    rawContent: rawContent.length > 0 ? rawContent : fullText,
+    toolCalls,
+    stopReason: 'stop',
+    usage:      finalUsage,
   };
 }
 
@@ -721,7 +851,10 @@ function _internalToGeminiContents(messages) {
         for (const block of msg.content) {
           if (block.type === 'text') parts.push({ text: block.text });
           if (block.type === 'tool_use') {
-            parts.push({ functionCall: { name: block.name, args: block.input } });
+            const part = { functionCall: { name: block.name, args: block.input } };
+            // Replay thought signature as part-level sibling — required by Gemini for multi-turn calls
+            if (block.thoughtSignature) part.thoughtSignature = block.thoughtSignature;
+            parts.push(part);
           }
         }
         if (parts.length > 0) result.push({ role: 'model', parts });
@@ -744,63 +877,90 @@ async function _geminiWithTools(
   endpoint, apiKey, model, systemPrompt, messages, tools, temperature, maxTokens, options
 ) {
   const baseUrl = endpoint || MODEL_CATALOG.google.endpoint;
+  // Use streamGenerateContent with alt=sse for chunked SSE streaming
   const url = new URL(
-    `/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    `/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`,
     baseUrl
   );
 
   const contents = _internalToGeminiContents(messages);
-
-  const bodyObj = {
+  const bodyObj  = {
     system_instruction: { parts: [{ text: systemPrompt }] },
     contents,
     generationConfig: { temperature, maxOutputTokens: maxTokens },
   };
+  if (tools && tools.length > 0) bodyObj.tools = tools;
 
-  if (tools && tools.length > 0) {
-    bodyObj.tools = tools;
-  }
+  let fullText    = '';
+  const toolCalls = [];
+  let stopReason  = null;
+  let usage       = null;
+  let apiError    = null;
 
-  const rawResponse = await httpRequest(url, {
-    method: 'POST',
+  await httpStreamRequest(url, {
+    method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(bodyObj),
+    body:    JSON.stringify(bodyObj),
+  }, (line) => {
+    if (!line.startsWith('data: ')) return;
+    const raw = line.slice(6).trim();
+    if (!raw) return;
+    let ev;
+    try { ev = JSON.parse(raw); } catch { return; }
+
+    if (ev.error) {
+      apiError = `Gemini API error: ${ev.error.message || JSON.stringify(ev.error)}`;
+      return;
+    }
+
+    const parts = ev.candidates?.[0]?.content?.parts || [];
+    for (const p of parts) {
+      if (p.text) {
+        fullText += p.text;
+        if (options?.onTextToken) options.onTextToken(p.text);
+      }
+      if (p.functionCall) {
+        const tc = {
+          id:    `gemini_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name:  p.functionCall.name,
+          input: p.functionCall.args || {},
+        };
+        // Preserve thought signature (part-level sibling to functionCall) for Gemini multi-turn calls
+        if (p.thoughtSignature) {
+          tc.thoughtSignature = p.thoughtSignature;
+        }
+        toolCalls.push(tc);
+      }
+    }
+
+    const fr = ev.candidates?.[0]?.finishReason;
+    if (fr) stopReason = fr;
+
+    if (ev.usageMetadata) {
+      usage = {
+        inputTokens:  ev.usageMetadata.promptTokenCount     || 0,
+        outputTokens: ev.usageMetadata.candidatesTokenCount || 0,
+      };
+    }
   });
 
-  const data = JSON.parse(rawResponse);
-
-  if (data.error) {
-    throw new Error(`Gemini API error: ${data.error.message || JSON.stringify(data.error)}`);
-  }
-
-  const parts = data.candidates?.[0]?.content?.parts || [];
-  const textParts  = parts.filter((p) => p.text);
-  const funcParts  = parts.filter((p) => p.functionCall);
-
-  const text = textParts.map((p) => p.text).join('');
-
-  if (options.onTextToken && text) {
-    options.onTextToken(text);
-  }
+  if (apiError) throw new Error(apiError);
 
   const rawContent = [];
-  if (text) rawContent.push({ type: 'text', text });
-  for (const p of funcParts) {
-    rawContent.push({
-      type: 'tool_use',
-      id: `gemini_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      name: p.functionCall.name,
-      input: p.functionCall.args || {},
-    });
+  if (fullText) rawContent.push({ type: 'text', text: fullText });
+  for (const tc of toolCalls) {
+    const block = { type: 'tool_use', id: tc.id, name: tc.name, input: tc.input };
+    // Preserve Gemini thought signature so it can be replayed in subsequent turns
+    if (tc.thoughtSignature) block.thoughtSignature = tc.thoughtSignature;
+    rawContent.push(block);
   }
 
   return {
-    text,
-    rawContent: rawContent.length > 0 ? rawContent : text,
-    toolCalls: rawContent
-      .filter((b) => b.type === 'tool_use')
-      .map((b) => ({ id: b.id, name: b.name, input: b.input })),
-    stopReason: data.candidates?.[0]?.finishReason || 'STOP',
+    text:       fullText,
+    rawContent: rawContent.length > 0 ? rawContent : fullText,
+    toolCalls,
+    stopReason,
+    usage,
   };
 }
 
@@ -826,7 +986,7 @@ async function _ollamaSimple(endpoint, model, systemPrompt, userMessage, tempera
 
 async function _openAISimple(endpoint, apiKey, model, systemPrompt, userMessage, temperature, maxTokens) {
   const url = new URL('/v1/chat/completions', endpoint || MODEL_CATALOG.openai.endpoint);
-  const isReasoning = /^o[0-9]/.test(model);
+  const isReasoning = /^(o[0-9]|gpt-5)/.test(model);
   const bodyObj = {
     model,
     messages: [
@@ -834,10 +994,12 @@ async function _openAISimple(endpoint, apiKey, model, systemPrompt, userMessage,
       { role: 'user',   content: userMessage },
     ],
   };
+  if (!isReasoning) {
+    bodyObj.temperature = temperature;
+  }
   if (isReasoning) {
     bodyObj.max_completion_tokens = maxTokens;
   } else {
-    bodyObj.temperature = temperature;
     bodyObj.max_tokens = maxTokens;
   }
   const response = await httpRequest(url, {
@@ -908,10 +1070,7 @@ async function askAboutPDF(filePath, question, options = {}) {
   const catalogEntry = MODEL_CATALOG[provider];
   const endpoint = merged.endpoint || catalogEntry?.endpoint || '';
 
-  let apiKey = merged.apiKey || '';
-  if (!apiKey && _keyStore && provider !== 'ollama') {
-    apiKey = _keyStore.getKey(provider) || '';
-  }
+  const apiKey = resolveApiKey(provider, merged.apiKey);
 
   const fsp = require('fs/promises');
   const pdfData = await fsp.readFile(filePath);
@@ -1040,6 +1199,75 @@ function httpRequest(url, options) {
   });
 }
 
+/**
+ * httpStreamRequest — streaming HTTP request for SSE / NDJSON responses.
+ *
+ * Calls onLine() for each newline-delimited line as it arrives from the server.
+ * This is used by all callWithTools implementations to enable true per-token
+ * streaming, dramatically reducing time-to-first-token.
+ *
+ * @param {URL}      url
+ * @param {object}   options  { method, headers, body }
+ * @param {Function} onLine   Called with each complete line string
+ * @returns {Promise<void>}   Resolves when the stream is complete
+ */
+function httpStreamRequest(url, options, onLine) {
+  return new Promise((resolve, reject) => {
+    const lib = url.protocol === 'https:' ? https : http;
+    const req = lib.request(url, {
+      method:  options.method || 'POST',
+      headers: options.headers || {},
+      timeout: 180_000,
+    }, (res) => {
+      // Follow redirects
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        const redirectUrl = new URL(res.headers.location, url.toString()).toString();
+        httpStreamRequest(new URL(redirectUrl), options, onLine).then(resolve).catch(reject);
+        return;
+      }
+
+      // Non-2xx: drain body and reject with error
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        let errBody = '';
+        res.setEncoding('utf-8');
+        res.on('data', (c) => { errBody += c; });
+        res.on('end',  () => reject(new Error(`HTTP ${res.statusCode}: ${errBody.slice(0, 500)}`)));
+        return;
+      }
+
+      let buffer        = '';
+      let callbackError = null;
+
+      res.setEncoding('utf-8');
+      res.on('data', (chunk) => {
+        if (callbackError) return;
+        buffer += chunk;
+        // Split on newlines; keep any incomplete trailing line buffered
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          try { onLine(line); }
+          catch (e) { callbackError = e; return; }
+        }
+      });
+      res.on('end', () => {
+        if (callbackError) { reject(callbackError); return; }
+        if (buffer.trim()) {
+          try { onLine(buffer); } catch (e) { reject(e); return; }
+        }
+        resolve();
+      });
+      res.on('error', reject);
+    });
+
+    req.on('error',   reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Stream request timed out (180s)')); });
+
+    if (options.body) req.write(options.body);
+    req.end();
+  });
+}
+
 module.exports = {
   callLLM,
   callWithTools,
@@ -1049,4 +1277,7 @@ module.exports = {
   getModelCatalog,
   listOllamaModels,
   getCurrentProvider,
+  resolveApiKey,
+  TOKEN_COSTS,
+  estimateCost,
 };

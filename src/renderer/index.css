@@ -222,3 +222,36 @@ html, body, #root {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Input / Textarea / Select  (theme-aware)
+───────────────────────────────────────────────────────────── */
+.input-field {
+  background:    var(--input-bg);
+  border:        1px solid var(--input-border);
+  color:         var(--text-primary);
+  border-radius: 0.5rem;
+  padding:       0.375rem 0.625rem;
+  font-size:     0.8125rem;
+  line-height:   1.5;
+  outline:       none;
+  transition:    border-color 0.15s, box-shadow 0.15s;
+  width:         100%;
+  font-family:   inherit;
+}
+.input-field::placeholder {
+  color: var(--text-tertiary);
+}
+.input-field:focus {
+  border-color: hsl(var(--accent) / 0.7);
+  box-shadow:   0 0 0 2px hsl(var(--accent) / 0.12);
+}
+.input-field:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* Ensure option elements inside select are readable */
+.input-field option {
+  background: var(--input-bg);
+  color:      var(--text-primary);
+}

@@ -57,13 +57,14 @@ OpenDesktop is a **local-first autonomous AI agent** that runs natively on macOS
 │  │              │    └── KeyStore (AES-256-GCM)                │  │
 │  │              └── PermissionManager (safe/sensitive/danger)  │  │
 │  │                                                            │  │
-│  │  ┌─── Tool Registry (146 tools) ───────────────────────┐  │  │
-│  │  │ Filesystem(13) │ Office(28)  │ Presentation(15)    │  │  │
-│  │  │ Productivity(12)│ Browser(5+9)│ GitHub(8)           │  │  │
-│  │  │ Database(6)    │ Workflow(6) │ Scheduler(6)        │  │  │
-│  │  │ Messaging(5)   │ Connectors(5)│ Search(4)          │  │  │
-│  │  │ Orchestration(4)│ LLM(4)     │ Reminders(3)        │  │  │
-│  │  │ AppControl(6)  │ System(6)   │ Content(1)          │  │  │
+│  │  ┌─── Tool Registry (174 tools) ───────────────────────┐  │  │
+│  │  │ Office(28)     │ ExcelMaster(28) │ Presentation(15)│  │  │
+│  │  │ Filesystem(13) │ Productivity(12)│ Browser(5+9)    │  │  │
+│  │  │ GitHub(8)      │ Database(6)     │ Workflow(6)     │  │  │
+│  │  │ Scheduler(6)   │ AppControl(6)   │ System(6)       │  │  │
+│  │  │ Messaging(5)   │ Connectors(5)   │ Search(4)       │  │  │
+│  │  │ Orchestration(4)│ LLM(4)         │ Reminders(3)    │  │  │
+│  │  │ Content(1)                                          │  │  │
 │  │  └─────────────────────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
@@ -113,7 +114,7 @@ app.whenReady()
       → memory.initialize()                // Create/open SQLite DB
       → keyStore.initialize()              // Decrypt .keystore.enc
       → reminderService.init(userDataPath, emitFn) // JSON-backed reminder scheduler
-      → toolRegistry.registerBuiltinTools() // Load all 146 tools
+      → toolRegistry.registerBuiltinTools() // Load all 174 tools
   → createWindow()                          // BrowserWindow with vibrancy
   → setupIPC()                              // Register all IPC handlers
 ```
@@ -974,9 +975,10 @@ OpenDesktop/
 │       │
 │       └── tools/                  # ═══ TOOL IMPLEMENTATIONS ═══
 │           ├── registry.js         # ToolRegistry: registration + provider-specific schemas
-│           ├── tool-schemas.js     # JSON Schema definitions for all 146 tools
+│           ├── tool-schemas.js     # JSON Schema definitions for all 174 tools
 │           ├── filesystem.js       # 13 tools: read, write, edit, list, search, move, organize, undo, diff...
 │           ├── office.js           # 28 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), Dashboards, VBA, PPTX (pptxgenjs), CSV
+│           ├── excel-tools.js      # 28 tools: excel_auto_build, excel_add_chart, KPIs, tables, formatting, features, query...
 │           ├── connectors.js       # 5 tools: Google Drive, Gmail, Calendar integration
 │           ├── app-control.js      # 6 tools: open (fuzzy), find, list, focus, quit, screenshot
 │           ├── browser.js          # 5 tools: navigate, click, type, key, submit_form

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import TitleBar       from './components/TitleBar';
-import Sidebar        from './components/Sidebar';
-import ChatPanel      from './components/ChatPanel';
-import ContextPanel   from './components/ContextPanel';
-import ApprovalDialog from './components/ApprovalDialog';
-import SettingsModal  from './components/SettingsModal';
+import TitleBar        from './components/TitleBar';
+import Sidebar         from './components/Sidebar';
+import ChatPanel       from './components/ChatPanel';
+import ContextPanel    from './components/ContextPanel';
+import ApprovalDialog  from './components/ApprovalDialog';
+import SettingsModal   from './components/SettingsModal';
+import WorkMode        from './components/WorkMode';
+import JiraImportModal from './components/JiraImportModal';
 
 const api = window.api;
 
@@ -33,6 +35,11 @@ export default function App() {
   const [mcpServers,        setMCPServers]        = useState([]);
   const [theme,             setTheme]             = useState(() => localStorage.getItem('od-theme') || 'dark');
 
+  // Work Mode state
+  const [workItems,      setWorkItems]      = useState([]);
+  const [activeWorkItem, setActiveWorkItem] = useState(null);
+  const [showJiraImport, setShowJiraImport] = useState(false);
+
   // activeTaskId — the ID of the currently running task (for event correlation)
   const activeTaskIdRef = useRef(null);
 
@@ -50,6 +57,7 @@ export default function App() {
     api?.getHistory(20).then(setHistory).catch(console.error);
     api?.getActiveContext().then(setContextData).catch(console.error);
     api?.listMCPServers().then(setMCPServers).catch(console.error);
+    api?.listWorkItems?.().then(setWorkItems).catch(console.error);
     loadSettings();
 
     const interval = setInterval(() => {
@@ -78,7 +86,8 @@ export default function App() {
     const cleanups = [
 
       // Server assigns the real taskId — patch the latest placeholder to adopt it
-      api.onAgentTaskStart(({ taskId: serverTaskId }) => {
+      api.onAgentTaskStart(({ taskId: serverTaskId, _workStep }) => {
+        if (_workStep) return; // WorkMode handles work step events
         activeTaskIdRef.current = serverTaskId;
         setMessages((prev) => {
           // Find the last assistant placeholder that hasn't completed yet
@@ -93,7 +102,8 @@ export default function App() {
       }),
 
       // LLM is starting a new reasoning turn
-      api.onAgentThinking(({ taskId, turn }) => {
+      api.onAgentThinking(({ taskId, turn, _workStep }) => {
+        if (_workStep) return;
         patchLastAssistant(taskId, (m) => ({
           ...m,
           phase: 'thinking',
@@ -103,7 +113,8 @@ export default function App() {
       }),
 
       // Streaming text token
-      api.onAgentToken(({ taskId, token }) => {
+      api.onAgentToken(({ taskId, token, _workStep }) => {
+        if (_workStep) return;
         patchLastAssistant(taskId, (m) => ({
           ...m,
           phase: 'streaming',
@@ -112,7 +123,8 @@ export default function App() {
       }),
 
       // Tool calls announced (before execution)
-      api.onAgentToolCalls(({ taskId, turn, calls }) => {
+      api.onAgentToolCalls(({ taskId, turn, calls, _workStep }) => {
+        if (_workStep) return;
         patchLastAssistant(taskId, (m) => ({
           ...m,
           phase: 'tool-calls',
@@ -125,7 +137,8 @@ export default function App() {
       }),
 
       // A single tool started
-      api.onAgentToolStart(({ taskId, id, name, input }) => {
+      api.onAgentToolStart(({ taskId, id, name, input, _workStep }) => {
+        if (_workStep) return;
         patchLastAssistant(taskId, (m) => ({
           ...m,
           activeCalls: (m.activeCalls || []).map((c) =>
@@ -138,7 +151,8 @@ export default function App() {
       }),
 
       // A single tool finished
-      api.onAgentToolEnd(({ taskId, id, name, success, error, outputPreview }) => {
+      api.onAgentToolEnd(({ taskId, id, name, success, error, outputPreview, _workStep }) => {
+        if (_workStep) return;
         patchLastAssistant(taskId, (m) => ({
           ...m,
           activeCalls: (m.activeCalls || []).map((c) =>
@@ -150,7 +164,8 @@ export default function App() {
       }),
 
       // Batch of tool results returned (a "turn" completed)
-      api.onAgentToolResults(({ taskId, turn, results }) => {
+      api.onAgentToolResults(({ taskId, turn, results, _workStep }) => {
+        if (_workStep) return;
         patchLastAssistant(taskId, (m) => {
           const completedTools = results.map((r) => ({
             id:      r.id,
@@ -169,7 +184,8 @@ export default function App() {
       }),
 
       // Phase updates (context-gathering, etc.)
-      api.onAgentStepUpdate(({ taskId, phase, message: msg }) => {
+      api.onAgentStepUpdate(({ taskId, phase, message: msg, _workStep }) => {
+        if (_workStep) return;
         setPhaseLabel(msg || phase || '');
         if (taskId) {
           patchLastAssistant(taskId, (m) => ({ ...m, phase }));
@@ -180,7 +196,8 @@ export default function App() {
       api.onApprovalRequest((data) => setApprovalRequest(data)),
 
       // Error
-      api.onAgentError(({ taskId, error }) => {
+      api.onAgentError(({ taskId, error, _workStep }) => {
+        if (_workStep) return;
         setIsProcessing(false);
         setPhaseLabel('');
         setMessages((prev) => {
@@ -194,7 +211,8 @@ export default function App() {
       }),
 
       // Task complete
-      api.onAgentComplete(({ taskId, status, summary, steps }) => {
+      api.onAgentComplete(({ taskId, status, summary, steps, _workStep }) => {
+        if (_workStep) return;
         setIsProcessing(false);
         setPhaseLabel('');
         setMessages((prev) => {
@@ -244,9 +262,39 @@ export default function App() {
         ]);
       });
 
+    // Scheduler task completed — inject an amber card into the chat
+    const schedulerCompleteCleanup = api.onSchedulerTaskComplete?.
+      (({ task, result }) => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role:      'scheduler',
+            content:   `Scheduled task "${task?.name || 'unknown'}" completed.${result ? '\n\n' + result : ''}`,
+            taskName:  task?.name,
+            timestamp: Date.now(),
+            completed: true,
+          },
+        ]);
+      });
+
+    // Scheduler task error — inject an error card
+    const schedulerErrorCleanup = api.onSchedulerTaskError?.
+      (({ task, error }) => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role:      'error',
+            content:   `Scheduled task "${task?.name || 'unknown'}" failed: ${error}`,
+            timestamp: Date.now(),
+          },
+        ]);
+      });
+
     return () => {
       cleanups.forEach((c) => c());
       if (typeof reminderCleanup === 'function') reminderCleanup();
+      if (typeof schedulerCompleteCleanup === 'function') schedulerCompleteCleanup();
+      if (typeof schedulerErrorCleanup === 'function') schedulerErrorCleanup();
     };
   }, []);
 
@@ -311,6 +359,55 @@ export default function App() {
     setPhaseLabel('');
   }, []);
 
+  // ── Work Mode handlers ───────────────────────────────────────────────────────
+  const handleSelectWorkItem = useCallback((item) => {
+    setActiveWorkItem(item);
+  }, []);
+
+  const handleBackFromWork = useCallback(() => {
+    setActiveWorkItem(null);
+    api?.listWorkItems?.().then(setWorkItems).catch(console.error);
+  }, []);
+
+  const handleNewWorkItem = useCallback(async () => {
+    try {
+      const w = await api.saveWorkItem({
+        title: 'New Work Item',
+        description: '',
+        status: 'todo',
+        steps: [],
+        tags: [],
+        jiraKey: null,
+      });
+      setWorkItems((prev) => [w, ...prev.filter((x) => x.id !== w.id)]);
+      setActiveWorkItem(w);
+    } catch (err) {
+      console.error('Failed to create work item:', err);
+    }
+  }, []);
+
+  const handleWorkItemUpdate = useCallback((updated) => {
+    setWorkItems((prev) => prev.map((wi) => wi.id === updated.id ? updated : wi));
+    setActiveWorkItem(updated);
+  }, []);
+
+  const handleImportJira = useCallback(() => {
+    setShowJiraImport(true);
+  }, []);
+
+  const handleJiraImportSubmit = useCallback(async (key) => {
+    try {
+      const r = await api.importJiraTicket(key);
+      if (r.error) return r.error;
+      setWorkItems((prev) => [r, ...prev.filter((x) => x.id !== r.id)]);
+      setActiveWorkItem(r);
+      setShowJiraImport(false);
+      return null;
+    } catch (err) {
+      return err.message;
+    }
+  }, []);
+
   const handleApproval = useCallback((requestId, approved, note) => {
     api?.approvalResponse(requestId, approved, note);
     setApprovalRequest(null);
@@ -368,21 +465,34 @@ export default function App() {
           showContext={showContext}
           onToggleContext={() => setShowContext(!showContext)}
           onNewSession={handleNewSession}
+          workItems={workItems}
+          selectedWorkItemId={activeWorkItem?.id || null}
+          onSelectWorkItem={handleSelectWorkItem}
+          onNewWorkItem={handleNewWorkItem}
+          onImportJira={handleImportJira}
         />
 
-        <ChatPanel
-          messages={messages}
-          isProcessing={isProcessing}
-          phaseLabel={phaseLabel}
-          onSend={handleSend}
-          onCancel={handleCancel}
-          activePersona={activePersona}
-          settings={settings}
-          isHistoryReplay={selectedHistoryId !== null}
-          onSettingsChange={loadSettings}
-        />
+        {activeWorkItem ? (
+          <WorkMode
+            workItem={activeWorkItem}
+            onBack={handleBackFromWork}
+            onItemUpdate={handleWorkItemUpdate}
+          />
+        ) : (
+          <ChatPanel
+            messages={messages}
+            isProcessing={isProcessing}
+            phaseLabel={phaseLabel}
+            onSend={handleSend}
+            onCancel={handleCancel}
+            activePersona={activePersona}
+            settings={settings}
+            isHistoryReplay={selectedHistoryId !== null}
+            onSettingsChange={loadSettings}
+          />
+        )}
 
-        {showContext && <ContextPanel contextData={contextData} tools={tools} />}
+        {!activeWorkItem && showContext && <ContextPanel contextData={contextData} tools={tools} />}
       </div>
 
       {approvalRequest && (
@@ -398,6 +508,13 @@ export default function App() {
           onClose={() => { setShowSettings(false); loadSettings(); refreshMCP(); }}
           theme={theme}
           onThemeChange={handleThemeChange}
+        />
+      )}
+
+      {showJiraImport && (
+        <JiraImportModal
+          onSubmit={handleJiraImportSubmit}
+          onClose={() => setShowJiraImport(false)}
         />
       )}
     </div>

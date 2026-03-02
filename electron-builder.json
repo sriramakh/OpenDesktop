@@ -14,6 +14,7 @@
   "asarUnpack": ["resources/python/**/*"],
   "mac": {
     "category": "public.app-category.productivity",
+    "icon": "assets/icon.icns",
     "target": [
       { "target": "dmg" },
       { "target": "zip" }

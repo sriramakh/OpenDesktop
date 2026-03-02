@@ -121,6 +121,38 @@ class MemorySystem {
         fired_at   INTEGER
       );
       CREATE INDEX IF NOT EXISTS idx_reminders_fire_at ON reminders(fire_at, status);
+
+      -- Audit log (Feature 1)
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id              TEXT PRIMARY KEY,
+        task_id         TEXT,
+        session_id      TEXT,
+        tool_name       TEXT NOT NULL,
+        tool_input      TEXT,
+        output_preview  TEXT,
+        success         INTEGER NOT NULL,
+        error           TEXT,
+        permission_level TEXT,
+        duration_ms     INTEGER,
+        timestamp       INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_ts   ON audit_log(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_audit_task ON audit_log(task_id);
+
+      -- Token/cost usage log (Feature 11)
+      CREATE TABLE IF NOT EXISTS usage_log (
+        id                  TEXT PRIMARY KEY,
+        task_id             TEXT,
+        session_id          TEXT,
+        provider            TEXT NOT NULL,
+        model               TEXT NOT NULL,
+        input_tokens        INTEGER,
+        output_tokens       INTEGER,
+        estimated_cost_usd  REAL,
+        turn                INTEGER,
+        timestamp           INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_log(timestamp);
     `);
 
     // Migrate old JSON data if it exists and DB is fresh
@@ -390,6 +422,129 @@ class MemorySystem {
       .prepare('UPDATE reminders SET status = \'cancelled\' WHERE id = ? AND status = \'pending\'')
       .run(id);
     return result.changes > 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Audit Log (Feature 1)
+  // ---------------------------------------------------------------------------
+
+  logToolCall({ taskId, sessionId, toolName, toolInput, outputPreview, success, error, permissionLevel, durationMs }) {
+    if (!this.useSQLite || !this.db) return;
+    try {
+      const id = `al_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      this.db.prepare(`
+        INSERT INTO audit_log (id, task_id, session_id, tool_name, tool_input, output_preview, success, error, permission_level, duration_ms, timestamp)
+        VALUES (@id, @task_id, @session_id, @tool_name, @tool_input, @output_preview, @success, @error, @permission_level, @duration_ms, @timestamp)
+      `).run({
+        id,
+        task_id:          taskId || null,
+        session_id:       sessionId || null,
+        tool_name:        toolName,
+        tool_input:       toolInput ? JSON.stringify(toolInput).slice(0, 2000) : null,
+        output_preview:   outputPreview ? String(outputPreview).slice(0, 500) : null,
+        success:          success ? 1 : 0,
+        error:            error || null,
+        permission_level: permissionLevel || null,
+        duration_ms:      durationMs || null,
+        timestamp:        Date.now(),
+      });
+    } catch (err) {
+      // Non-critical — don't let audit failures break tool execution
+      console.warn('[Memory] logToolCall failed:', err.message);
+    }
+  }
+
+  getAuditLog({ limit = 50, offset = 0, taskId, toolName, startTime, endTime } = {}) {
+    if (!this.useSQLite || !this.db) return [];
+    try {
+      let sql = 'SELECT * FROM audit_log WHERE 1=1';
+      const params = [];
+      if (taskId)    { sql += ' AND task_id = ?';      params.push(taskId); }
+      if (toolName)  { sql += ' AND tool_name = ?';    params.push(toolName); }
+      if (startTime) { sql += ' AND timestamp >= ?';   params.push(startTime); }
+      if (endTime)   { sql += ' AND timestamp <= ?';   params.push(endTime); }
+      sql += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+      return this.db.prepare(sql).all(...params);
+    } catch (err) {
+      console.warn('[Memory] getAuditLog failed:', err.message);
+      return [];
+    }
+  }
+
+  exportAuditLog({ taskId, startTime, endTime } = {}) {
+    const rows = this.getAuditLog({ limit: 10000, offset: 0, taskId, startTime, endTime });
+    const header = ['id', 'timestamp', 'task_id', 'tool_name', 'success', 'duration_ms', 'error', 'output_preview'].join(',');
+    const csvRows = rows.map((r) => [
+      r.id, r.timestamp, r.task_id || '', r.tool_name, r.success, r.duration_ms || '',
+      `"${(r.error || '').replace(/"/g, '""')}"`,
+      `"${(r.output_preview || '').replace(/"/g, '""')}"`,
+    ].join(','));
+    return [header, ...csvRows].join('\n');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Usage / Cost Log (Feature 11)
+  // ---------------------------------------------------------------------------
+
+  logUsage({ taskId, sessionId, provider, model, inputTokens, outputTokens, estimatedCostUsd, turn }) {
+    if (!this.useSQLite || !this.db) return;
+    try {
+      const id = `ul_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      this.db.prepare(`
+        INSERT INTO usage_log (id, task_id, session_id, provider, model, input_tokens, output_tokens, estimated_cost_usd, turn, timestamp)
+        VALUES (@id, @task_id, @session_id, @provider, @model, @input_tokens, @output_tokens, @estimated_cost_usd, @turn, @timestamp)
+      `).run({
+        id,
+        task_id:            taskId || null,
+        session_id:         sessionId || null,
+        provider,
+        model,
+        input_tokens:       inputTokens || 0,
+        output_tokens:      outputTokens || 0,
+        estimated_cost_usd: estimatedCostUsd || 0,
+        turn:               turn || null,
+        timestamp:          Date.now(),
+      });
+    } catch (err) {
+      console.warn('[Memory] logUsage failed:', err.message);
+    }
+  }
+
+  getUsageSummary(days = 30) {
+    if (!this.useSQLite || !this.db) return {};
+    try {
+      const since = Date.now() - days * 24 * 60 * 60 * 1000;
+      const totals = this.db.prepare(`
+        SELECT
+          SUM(input_tokens)  AS total_input_tokens,
+          SUM(output_tokens) AS total_output_tokens,
+          SUM(estimated_cost_usd) AS total_cost_usd,
+          COUNT(*) AS total_calls
+        FROM usage_log WHERE timestamp >= ?
+      `).get(since);
+
+      const byProvider = this.db.prepare(`
+        SELECT provider, model,
+          SUM(input_tokens) AS input_tokens,
+          SUM(output_tokens) AS output_tokens,
+          SUM(estimated_cost_usd) AS cost_usd,
+          COUNT(*) AS calls
+        FROM usage_log WHERE timestamp >= ?
+        GROUP BY provider, model
+        ORDER BY cost_usd DESC
+      `).all(since);
+
+      const recent = this.db.prepare(`
+        SELECT * FROM usage_log WHERE timestamp >= ?
+        ORDER BY timestamp DESC LIMIT 20
+      `).all(since);
+
+      return { days, totals, byProvider, recent };
+    } catch (err) {
+      console.warn('[Memory] getUsageSummary failed:', err.message);
+      return {};
+    }
   }
 
   // ---------------------------------------------------------------------------

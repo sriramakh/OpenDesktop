@@ -25,13 +25,15 @@ const {
 } = require('./llm');
 
 class AgentCore {
-  constructor({ memory, permissions, context, toolRegistry, keyStore, emit }) {
+  constructor({ memory, permissions, context, toolRegistry, keyStore, emit, piiDetector, policyEngine }) {
     this.memory      = memory;
     this.permissions = permissions;
     this.context     = context;
     this.toolRegistry = toolRegistry;
     this.keyStore    = keyStore;
     this.emit        = emit;
+    this.piiDetector  = piiDetector  || null;
+    this.policyEngine = policyEngine || null;
 
     this.personaManager = new PersonaManager();
 
@@ -57,6 +59,7 @@ class AgentCore {
     };
 
     this._retryAttempt = false;
+    this._spawner = null;
 
     if (keyStore) {
       setLLMKeyStore(keyStore);
@@ -67,13 +70,19 @@ class AgentCore {
       toolRegistry,
       llm: { callWithTools, getCurrentProvider },
       permissions,
-      emit: this._emitWrapper.bind(this),
+      emit:         this._emitWrapper.bind(this),
+      memory,
+      piiDetector:  this.piiDetector,
+      policyEngine: this.policyEngine,
       summarizer: async (content, toolName) =>
         callLLM(
           'Summarize this tool output in ≤300 words, preserving key facts, numbers, file paths.',
           `Tool: ${toolName}\nOutput:\n${content.slice(0, 12000)}`
         ),
     });
+
+    // Pass session ID to loop so audit logs are correlated
+    this._loop._sessionId = this.sessionId;
   }
 
   // ---------------------------------------------------------------------------
@@ -93,6 +102,13 @@ class AgentCore {
       maxTokens:   this.settings.maxTokens,
     });
     return this.settings;
+  }
+
+  /**
+   * Wire the AgentSpawner for parallel execution support.
+   */
+  setSpawner(spawner) {
+    this._spawner = spawner;
   }
 
   // ---------------------------------------------------------------------------
@@ -149,10 +165,14 @@ class AgentCore {
     // Notify the renderer immediately so it can adopt this taskId
     this.emit('agent:task-start', { taskId });
 
-    // Resolve persona
+    // ── Classify complexity (zero LLM calls) ──
+    const complexity = this._classifyComplexity(message);
+    console.log(`[AgentCore] Complexity: ${complexity} for "${message.slice(0, 60)}..."`);
+
+    // Resolve persona — skip LLM fallback for simple queries
     let resolvedPersona = personaName || this.settings.defaultPersona;
     if (resolvedPersona === 'auto' || !personaName) {
-      resolvedPersona = await this._autoSelectPersona(message);
+      resolvedPersona = await this._autoSelectPersona(message, complexity);
     }
     const persona = this.personaManager.get(resolvedPersona);
 
@@ -160,6 +180,21 @@ class AgentCore {
     let userContent = message;
     if (attachments && attachments.length > 0) {
       userContent += `\n\n[Attached files: ${attachments.join(', ')} — use fs_read or appropriate office tools to read them]`;
+    }
+
+    // ── Tool routing hints — inject when keywords strongly match a specific tool ──
+    const msgLower = message.toLowerCase();
+    const isEditRequest = /\b(add\s+slide|remove\s+slide|delete\s+slide|change\s+theme|edit.*presentation|move\s+slide|regenerate\s+slide|refine\s+slide|tweak\s+slide|update\s+slide|rename\s+section|add\s+section|what\s+slides|show\s+slides|presentation\s+structure)\b/.test(msgLower);
+    if (isEditRequest) {
+      userContent += `\n\n[ROUTING: This is an EDIT request for an existing presentation. `
+        + `First call \`pptx_edit_get_state\` to see the current structure, then use the appropriate \`pptx_edit_*\` tool. `
+        + `Available: pptx_edit_add_slide, pptx_edit_remove_slide, pptx_edit_move_slide, pptx_edit_update_content, `
+        + `pptx_edit_regenerate, pptx_edit_set_theme, pptx_edit_rebuild, pptx_edit_rename_section, pptx_edit_add_section. `
+        + `The session_path was returned by the original pptx_ai_build or pptx_build call.]`;
+    } else if (/\b(presentation|pptx|powerpoint|pitch\s*deck|slide\s*deck|slides)\b/.test(msgLower)) {
+      userContent += `\n\n[ROUTING: You MUST call the tool \`pptx_ai_build\` to create the presentation. `
+        + `Do any research/data-gathering first, then call pptx_ai_build once with topic, company_name, theme_key, `
+        + `and pass all gathered info as additional_context. Do NOT use system_exec, office_write_pptx, or pptx_build.]`;
     }
 
     // Add user message to session
@@ -172,25 +207,66 @@ class AgentCore {
       // Gather live OS context
       this.emit('agent:step-update', { taskId, phase: 'context', message: 'Gathering context...' });
       const activeContext = await this.context.getActiveContext().catch(() => ({}));
-      const relevantMemories = await this.memory.search(message, 3);
+      const relevantMemories = this.memory.search(message, 3);
 
       // Build the system prompt
       const systemPrompt = this._buildSystemPrompt(persona, activeContext, relevantMemories);
+      const taskStartTime = Date.now();
+      const agentMode = this.settings.agentMode;
+
+      // ── Parallel execution for complex multi-entity tasks ──
+      if (complexity === 'complex' && this._spawner) {
+        const parallel = this._detectParallelPattern(message);
+        if (parallel) {
+          console.log(`[AgentCore] Parallel pattern detected: ${parallel.type} with ${parallel.entities.length} entities`);
+          const parallelResult = await this._executeParallel(parallel, message, taskId, systemPrompt);
+          if (parallelResult) {
+            // Save synthesis as the session result
+            this.sessionMessages.push({ role: 'assistant', content: parallelResult });
+            this.memory.addToShortTerm({ role: 'assistant', content: parallelResult, taskId, timestamp: Date.now() });
+            await this.memory.addToLongTerm({
+              type: 'task', query: message, summary: parallelResult, persona: persona.name,
+              status: 'completed', turns: 0, sessionId: this.sessionId, timestamp: Date.now(),
+            });
+            await this.memory.saveTaskState({
+              sessionId: this.sessionId, query: message, goal: message,
+              plan: null, completedSteps: [], filesModified: [], toolOutputsSummary: [],
+              decisions: [], status: 'completed', turns: 0,
+              createdAt: taskStartTime, completedAt: Date.now(),
+            });
+            this.emit('agent:complete', { taskId, status: 'completed', summary: parallelResult, steps: [] });
+            return { taskId, summary: parallelResult };
+          }
+          // Fall through to normal flow if parallel execution returned null
+        }
+      }
 
       this.emit('agent:step-update', { taskId, phase: 'running', message: 'Agent is working...' });
 
-      // Generate structured plan (comprehensive mode, longer tasks)
-      const taskStartTime = Date.now();
-      let taskPlan = await this._generatePlan(message);
+      // ── Plan generation: only for complex tasks in comprehensive mode ──
+      let taskPlan = null;
+      if (complexity === 'complex') {
+        taskPlan = await this._generatePlan(message);
+      }
 
-      // Build messages for this turn: past session + current user message already added above
+      // Build messages for this turn
       const messagesForLoop = this.sessionMessages.slice();
       if (taskPlan) {
         messagesForLoop.push({ role: 'assistant', content: `[PLAN]\n${JSON.stringify(taskPlan, null, 2)}\n[/PLAN]\n\nExecuting plan now.` });
         messagesForLoop.push({ role: 'user', content: 'Good. Execute the plan.' });
       }
 
-      const agentMode = this.settings.agentMode;
+      // ── Max turns based on complexity ──
+      let maxTurns;
+      if (agentMode === 'fast') {
+        maxTurns = 15;
+      } else if (complexity === 'simple') {
+        maxTurns = 5;
+      } else if (complexity === 'moderate') {
+        maxTurns = 15;
+      } else {
+        maxTurns = this.settings.maxTurns; // complex: full allocation
+      }
 
       // Run the ReAct loop
       let result = await this._loop.run({
@@ -198,7 +274,7 @@ class AgentCore {
         systemPrompt,
         taskId,
         options: {
-          maxTurns: agentMode === 'fast' ? 15 : this.settings.maxTurns,
+          maxTurns,
           taskPlan,
         },
         pendingApprovals: this.pendingApprovals,
@@ -206,14 +282,21 @@ class AgentCore {
 
       let summary = result.text || '(No response)';
 
-      // Self-verification + single retry (comprehensive mode only)
-      if (agentMode !== 'fast' && !result.cancelled && !this._retryAttempt) {
+      // ── Self-verification: only for complex tasks in comprehensive mode ──
+      if (complexity === 'complex' && agentMode !== 'fast' && !result.cancelled && !this._retryAttempt) {
         const check = await this._verifyGoal(message, summary, taskPlan);
         if (!check.verified) {
           this._retryAttempt = true;
+          let retryHint = `Task incomplete. Missing: ${check.missing || 'goal not achieved'}. Please complete it.`;
+          // Re-inject routing hint on retry
+          if (isEditRequest) {
+            retryHint += ` [ROUTING: Use \`pptx_edit_*\` tools with the session_path from the original build.]`;
+          } else if (/\b(presentation|pptx|powerpoint|pitch\s*deck|slide\s*deck|slides)\b/.test(msgLower)) {
+            retryHint += ` [ROUTING: Call \`pptx_ai_build\` to create the presentation. Pass all research as additional_context.]`;
+          }
           const retryMsgs = result.messages.concat([{
             role: 'user',
-            content: `Task incomplete. Missing: ${check.missing || 'goal not achieved'}. Please complete it.`,
+            content: retryHint,
           }]);
           try {
             const r2 = await this._loop.run({
@@ -314,6 +397,8 @@ You have real tools that execute directly on this machine:
 - **Google connectors**: connector_drive_search, connector_drive_read, connector_gmail_search, connector_gmail_read, connector_calendar_events — require the user to connect via the connector button first
 - **Browser tabs**: tabs_list, tabs_navigate, tabs_close, tabs_read, tabs_focus, tabs_find_duplicates, tabs_find_forms, tabs_fill_form, tabs_run_js — manage open tabs in Chrome, Safari, Firefox, Brave, Edge, Arc
 - **Reminders**: reminder_set, reminder_list, reminder_cancel — schedule native OS notifications; use \`reminder_list\` to show what's pending; use \`reminder_cancel\` to delete one
+- **Presentation builder**: **pptx_ai_build** — the tool to use for NEW presentations. AI engine handles slide selection, content, and rendering. Pass research/data via additional_context.
+- **Presentation editing**: pptx_edit_get_state, pptx_edit_add_slide, pptx_edit_remove_slide, pptx_edit_move_slide, pptx_edit_update_content, pptx_edit_regenerate, pptx_edit_set_theme, pptx_edit_rebuild, pptx_edit_rename_section, pptx_edit_add_section — iteratively edit an existing presentation using the session file from pptx_ai_build
 - **MCP tools**: Any tools prefixed with \`mcp_\` come from connected MCP servers — use them as appropriate for specialized tasks
 
 ## Critical operating principles
@@ -349,15 +434,28 @@ You have real tools that execute directly on this machine:
   5. **Paginated reading**: always use startPage/endPage to chunk large PDFs — read 10–15 pages at a time, then continue. Never skip pages.
   6. Output has \`--- Page N / TOTAL ---\` markers — use them to track coverage and cite sources.
 - **TOOL ROUTING — CRITICAL**:
-  - PowerPoint/presentation → \`office_write_pptx\` ONLY. Excel/spreadsheet → \`office_write_xlsx\` ONLY. Never mix these.
+  - **New presentation/deck/pitch/PowerPoint/slides/PPTX** → **ALWAYS use \`pptx_ai_build\`**. Never use \`pptx_build\`, \`office_write_pptx\`, or any other tool for NEW presentations.
+  - **Edit existing presentation** (add/remove/move slides, change theme, update content) → use \`pptx_edit_*\` tools with the session file from the original build.
+  - Excel/spreadsheet → \`office_write_xlsx\` ONLY. Never mix these.
   - **Dashboard/report/visualization requests → \`office_python_dashboard\` ONLY. NEVER use \`office_dashboard_xlsx\`, \`excel_vba_dashboard\`, or \`llm_code\` when the user asks to "build a dashboard", "create a report", "visualize data", or "make charts".** Follow the 6-step skill guide workflow — analyze data, read the guide, design, write pythonScript, call the tool.
-- **Creating PowerPoint (.pptx)**:
-  1. First ask: "Do you have a template .pptx to base the design on?" — if yes use templatePath, else pick theme (professional/dark/minimal/vibrant).
-  2. PLAN every slide BEFORE calling the tool: decide layout, write the talking header (complete sentence insight, NOT a topic label), list 4–6 bullet points.
-  3. Talking headers: "Enterprise AI Adoption Tripled in 2025" ✓ — "AI Adoption" ✗
-  4. Structure: slide 1 = title (cover), last slide = title (closing), use section slides as chapter dividers, two-column for comparisons, table for structured data.
-  5. Generate EXACTLY the number of slides requested. Add speaker notes to every slide.
-  6. Call \`office_write_pptx\` once with the complete fully-planned slides array.
+- **Presentations — MANDATORY workflow using \`pptx_ai_build\`**:
+  The AI engine inside pptx_ai_build handles all slide selection, content generation, and rendering. Your job is ONLY to gather context and call the tool.
+  - **Scenario 1 — "Create a presentation about X"**: Call \`pptx_ai_build\` directly with topic, company_name, theme_key, industry. Done.
+  - **Scenario 2 — "Research X and create a presentation"**: First do the research (web_search, web_fetch, fs_read, etc.), then call \`pptx_ai_build\` with topic and pass ALL research findings as \`additional_context\`. The AI engine will weave the research into professional slides.
+  - **Scenario 3 — "Create a presentation from this file/data"**: First read the file (office_read_xlsx, office_read_csv, office_read_pdf, fs_read), then call \`pptx_ai_build\` with topic and pass the file contents/data as \`additional_context\`.
+  - **Theme auto-selection**: retail/corporate→corporate, tech/software→technology, banking/insurance→finance, medical/pharma→healthcare, university→education, VC/pitch→startup, eco/green→sustainability, fashion→luxury, public-sector→government.
+  - **NEVER** try to generate slide content yourself. NEVER call pptx_build, pptx_list_slide_types, or office_write_pptx for presentations. The AI engine produces 15-22 professional slides with charts, KPIs, SWOT, roadmaps, etc. — far better than manually constructing content.
+- **Presentation editing workflow** (for existing presentations):
+  After \`pptx_ai_build\` or \`pptx_build\` completes, a \`.session.json\` file is saved alongside the PPTX. Use this for iterative edits:
+  1. **"What slides are in it?"** → \`pptx_edit_get_state\` — shows sections, slide types, theme
+  2. **"Add a SWOT slide"** → \`pptx_edit_add_slide\` with slide_type="swot_matrix" — AI generates content and rebuilds
+  3. **"Remove the team slide"** → \`pptx_edit_remove_slide\` with slide_type="team_leadership"
+  4. **"Move the chart before the summary"** → \`pptx_edit_move_slide\` with after="executive_summary"
+  5. **"Update the title to X"** → \`pptx_edit_update_content\` with specific content key updates
+  6. **"Regenerate the KPI dashboard"** → \`pptx_edit_regenerate\` with optional instruction
+  7. **"Change theme to technology"** → \`pptx_edit_set_theme\`
+  8. **"Rename the Analysis section"** → \`pptx_edit_rename_section\`
+  The session file persists across conversation turns. Always pass the session_path from the original build result.
 - **Excel Python dashboard workflow** (dashboard/report/visualization requests — see TOOL ROUTING above):
   1. For **CSV source**: call \`office_read_csv\` (NOT \`office_analyze_xlsx\` — that fails on CSV). For XLSX source: call \`office_read_xlsx\` with summaryOnly=true.
   2. Call \`fs_read("${path.join(__dirname, 'skills', 'excel-dashboard.md')}")\` to load the complete Python template and skill guide.
@@ -401,6 +499,13 @@ You have real tools that execute directly on this machine:
   - For podcast RSS/Apple Podcasts/Spotify URLs: pass the URL directly
   - If the CLI isn't installed: tell user to run \`npm install -g @steipete/summarize\`
 
+## Parallel execution
+When asked to compare, contrast, or research multiple entities:
+1. Use \`agent_fanout\` to research each entity in parallel (one prompt per entity)
+2. Use \`agent_reduce\` to synthesize results into a structured comparison
+This is MUCH faster than researching sequentially. Example:
+- "Compare AWS vs Azure" → agent_fanout with ["Research AWS...", "Research Azure..."] → agent_reduce
+
 ## Browser tab workflow
 - **Listing tabs**: \`tabs_list\` (browser="all"). Returns [W{window}T{tab}] indices needed for all other tab tools.
 - **Navigating**: \`tabs_navigate\` — ALWAYS use this to open URLs in the user's existing browser. NEVER use \`browser_navigate\`, \`app_open\`, or \`system_exec open url\` for this — those open the system default browser instead.
@@ -425,7 +530,7 @@ You have real tools that execute directly on this machine:
   // Auto-persona selection (multi-signal scoring)
   // ---------------------------------------------------------------------------
 
-  async _autoSelectPersona(message) {
+  async _autoSelectPersona(message, complexity = 'moderate') {
     const msg = message.toLowerCase();
 
     // Strong and weak signal patterns for each persona
@@ -455,12 +560,17 @@ You have real tools that execute directly on this machine:
     const maxScore = Math.max(...Object.values(scores));
     const winner   = Object.entries(scores).sort(([, a], [, b]) => b - a)[0][0];
 
-    // If there's a clear winner with strong signal, trust it
-    if (maxScore >= 3) {
+    // Trust regex scoring at lower threshold (was 3, now 2)
+    if (maxScore >= 2) {
       return winner;
     }
 
-    // Ambiguous — ask LLM for classification
+    // For simple queries: skip LLM fallback entirely — use 'researcher' as default
+    if (complexity === 'simple') {
+      return maxScore > 0 ? winner : 'researcher';
+    }
+
+    // Ambiguous moderate/complex — ask LLM for classification
     try {
       const result = await callLLM(
         'You are a task classifier. Classify user requests into one of three categories:\n- executor: the user wants to DO something (create, move, run, install, open, organize files, automate)\n- researcher: the user wants to KNOW something (search, explain, summarize, find information, describe)\n- planner: the user wants to PLAN something (design, strategize, break down steps, decide approach)\n\nReply with ONLY one lowercase word: executor, researcher, or planner.',
@@ -477,6 +587,91 @@ You have real tools that execute directly on this machine:
 
     // True fallback: executor (most common general-purpose task)
     return 'executor';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Complexity classifier — pure regex, zero LLM calls
+  // ---------------------------------------------------------------------------
+
+  _classifyComplexity(message) {
+    const msg = message.trim();
+    const lower = msg.toLowerCase();
+    const wordCount = msg.split(/\s+/).length;
+
+    // Simple: greetings, short factual questions, single-action requests
+    if (wordCount <= 5 && /^(hi|hello|hey|thanks|thank you|ok|okay|sure|yes|no)\b/i.test(lower)) return 'simple';
+    if (wordCount <= 12 && /^(what|who|when|where|how much|how many|what's|who's)\b/.test(lower) && !/\b(and|compare|versus|vs|both|research|analyze|create|build|make|generate)\b/.test(lower)) return 'simple';
+    if (wordCount <= 8 && /^(tell me the time|what time|current date|what day)/i.test(lower)) return 'simple';
+
+    // Complex: multi-entity, comparisons, research + creation, long instructions
+    if (/\b(compare|versus|vs\.?)\b/.test(lower)) return 'complex';
+    if (/\b(research|analyze|investigate)\b/.test(lower) && /\b(and|then|also|create|build|make|present)\b/.test(lower)) return 'complex';
+    if (wordCount > 40) return 'complex';
+
+    // Moderate: everything in between
+    return 'moderate';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Parallel pattern detector — finds multi-entity comparison/research tasks
+  // ---------------------------------------------------------------------------
+
+  _detectParallelPattern(message) {
+    const lower = message.toLowerCase();
+
+    // Pattern: "compare X vs/versus/and Y" or "X vs Y"
+    const vsMatch = message.match(/(?:compare\s+)?(.+?)\s+(?:vs\.?|versus|compared?\s+(?:to|with))\s+(.+?)(?:\s*[-–—]\s*|\s+(?:in terms of|regarding|for|on|over|using|based)\s+|\.|,|$)/i);
+    if (vsMatch) {
+      const [, entityA, entityB] = vsMatch;
+      const context = message.replace(vsMatch[0], '').trim();
+      return { entities: [entityA.trim(), entityB.trim()], task: context || 'comprehensive comparison', type: 'compare' };
+    }
+
+    // Pattern: "research/analyze X, Y, and Z"
+    const multiMatch = message.match(/(?:research|analyze|investigate|look into|find out about)\s+(.+)/i);
+    if (multiMatch) {
+      const entitiesStr = multiMatch[1];
+      const entities = entitiesStr.split(/\s*(?:,\s*(?:and\s+)?|(?:\s+and\s+))\s*/).map(e => e.trim()).filter(e => e.length > 0 && e.length < 60);
+      if (entities.length >= 2 && entities.length <= 5) {
+        return { entities, task: 'research', type: 'research' };
+      }
+    }
+
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Parallel executor — uses AgentSpawner.fanOut() + reduce()
+  // ---------------------------------------------------------------------------
+
+  async _executeParallel(pattern, originalMessage, taskId, systemPrompt) {
+    this.emit('agent:step-update', { taskId, phase: 'parallel', message: `Researching ${pattern.entities.length} entities in parallel...` });
+
+    const subPrompts = pattern.entities.map(entity =>
+      `Research "${entity}" thoroughly. ${pattern.task && pattern.task !== 'research' && pattern.task !== 'comprehensive comparison' ? `Focus on: ${pattern.task}.` : ''} ` +
+      `Use web_search to find current information, web_fetch to read sources. ` +
+      `Provide a comprehensive, well-structured summary with key facts, numbers, and sources.`
+    );
+
+    try {
+      const results = await this._spawner.fanOut({ prompts: subPrompts, maxTurns: 10 });
+
+      const successResults = results.filter(r => !r.error).map(r => r.result);
+      if (successResults.length === 0) return null; // Fall back to normal flow
+
+      const synthesisPrompt = pattern.type === 'compare'
+        ? `The user asked: "${originalMessage}"\n\nYou researched ${pattern.entities.length} entities in parallel. ` +
+          `Synthesize a structured comparison with: executive summary, side-by-side comparison table, ` +
+          `key differences, strengths/weaknesses of each, and a conclusion.`
+        : `The user asked: "${originalMessage}"\n\nSynthesize these ${pattern.entities.length} research results ` +
+          `into a single comprehensive response.`;
+
+      const synthesis = await this._spawner.reduce({ results: successResults, combinePrompt: synthesisPrompt, maxTurns: 5 });
+      return synthesis;
+    } catch (err) {
+      console.warn('[AgentCore] Parallel execution failed, falling back:', err.message);
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -500,9 +695,17 @@ You have real tools that execute directly on this machine:
   async _generatePlan(message) {
     if (this.settings.agentMode === 'fast' || message.trim().length < 80) return null;
     try {
+      // Inject routing constraints for specific task types
+      let routingHint = '';
+      const ml = message.toLowerCase();
+      if (/\b(presentation|pptx|powerpoint|pitch\s*deck|slide\s*deck|slides)\b/.test(ml)) {
+        routingHint = '\nCRITICAL: The final step to create the presentation MUST use tool "pptx_ai_build". '
+          + 'Do research first if needed, then call pptx_ai_build with all findings as additional_context. '
+          + 'NEVER use system_exec, office_write_pptx, or pptx_build for presentations.';
+      }
       const raw = await callLLM(
         'You are a task planner. Output ONLY valid JSON. No markdown fences.',
-        `Produce a structured execution plan for: "${message}"\nJSON: { "goal":"...", "steps":[{"id":1,"action":"...","tool":"tool_name_or_null","depends_on":[]},...], "success_criteria":"..." }`
+        `Produce a structured execution plan for: "${message}"${routingHint}\nJSON: { "goal":"...", "steps":[{"id":1,"action":"...","tool":"tool_name_or_null","depends_on":[]},...], "success_criteria":"..." }`
       );
       return JSON.parse(raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim());
     } catch (err) {

@@ -145,6 +145,82 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('reminder:fired', handler);
   },
 
+  // ── Audit Log ──────────────────────────────────────────────────────────────
+  getAuditLog:  (params) => ipcRenderer.invoke('audit:get-log', params),
+  exportAuditLog: (params) => ipcRenderer.invoke('audit:export', params),
+
+  // ── Usage / Cost ───────────────────────────────────────────────────────────
+  getUsageSummary: (days) => ipcRenderer.invoke('usage:summary', { days }),
+
+  // ── Policy Engine ──────────────────────────────────────────────────────────
+  listPolicies:  ()       => ipcRenderer.invoke('policy:list'),
+  addPolicy:     (rule)   => ipcRenderer.invoke('policy:add', rule),
+  removePolicy:  (id)     => ipcRenderer.invoke('policy:remove', { id }),
+
+  // ── Workflows ──────────────────────────────────────────────────────────────
+  listWorkflows:   (filter)      => ipcRenderer.invoke('workflow:list', filter),
+  saveWorkflow:    (workflow)    => ipcRenderer.invoke('workflow:save', workflow),
+  runWorkflow:     (id, vars)    => ipcRenderer.invoke('workflow:run', { id, variables: vars }),
+  deleteWorkflow:  (id)          => ipcRenderer.invoke('workflow:delete', { id }),
+
+  // ── Scheduler ──────────────────────────────────────────────────────────────
+  listScheduledTasks:  ()              => ipcRenderer.invoke('scheduler:list'),
+  createScheduledTask: (task)          => ipcRenderer.invoke('scheduler:create', task),
+  deleteScheduledTask: (id)            => ipcRenderer.invoke('scheduler:delete', { id }),
+  toggleScheduledTask: (id, enabled)   => ipcRenderer.invoke('scheduler:toggle', { id, enabled }),
+  runScheduledTaskNow: (id)            => ipcRenderer.invoke('scheduler:run-now', { id }),
+
+  // ── API Server ─────────────────────────────────────────────────────────────
+  getApiServerStatus: ()                        => ipcRenderer.invoke('api-server:status'),
+  toggleApiServer:    (enabled, port, apiKey)   => ipcRenderer.invoke('api-server:toggle', { enabled, port, apiKey }),
+
+  // ── Database connections ───────────────────────────────────────────────────
+  listDbConnections:  ()     => ipcRenderer.invoke('db:list-connections'),
+  addDbConnection:    (form) => ipcRenderer.invoke('db:add-connection', form),
+  removeDbConnection: (id)   => ipcRenderer.invoke('db:remove-connection', id),
+  testDbConnection:   (id)   => ipcRenderer.invoke('db:test-connection', id),
+
+  // Scheduler task events
+  onSchedulerTaskStart: (cb) => {
+    const handler = (_e, d) => cb(d);
+    ipcRenderer.on('scheduler:task-started', handler);
+    return () => ipcRenderer.removeListener('scheduler:task-started', handler);
+  },
+  onSchedulerTaskComplete: (cb) => {
+    const handler = (_e, d) => cb(d);
+    ipcRenderer.on('scheduler:task-completed', handler);
+    return () => ipcRenderer.removeListener('scheduler:task-completed', handler);
+  },
+  onSchedulerTaskError: (cb) => {
+    const handler = (_e, d) => cb(d);
+    ipcRenderer.on('scheduler:task-error', handler);
+    return () => ipcRenderer.removeListener('scheduler:task-error', handler);
+  },
+
+  // ── Work Mode ──────────────────────────────────────────────────────────────
+  listWorkItems:    (f)          => ipcRenderer.invoke('work:list', f),
+  getWorkItem:      (id)         => ipcRenderer.invoke('work:get', { id }),
+  saveWorkItem:     (data)       => ipcRenderer.invoke('work:save', data),
+  deleteWorkItem:   (id)         => ipcRenderer.invoke('work:delete', { id }),
+  addWorkStep:      (i, s)       => ipcRenderer.invoke('work:add-step', { itemId: i, step: s }),
+  updateWorkStep:   (i, s, p)    => ipcRenderer.invoke('work:update-step', { itemId: i, stepId: s, patch: p }),
+  deleteWorkStep:   (i, s)       => ipcRenderer.invoke('work:delete-step', { itemId: i, stepId: s }),
+  reorderWorkSteps: (i, ids)     => ipcRenderer.invoke('work:reorder-steps', { itemId: i, orderedIds: ids }),
+  resetWorkStep:    (i, s)       => ipcRenderer.invoke('work:reset-step', { itemId: i, stepId: s }),
+  runWorkStep:      (i, s)       => ipcRenderer.invoke('work:run-step', { itemId: i, stepId: s }),
+  importJiraTicket: (key)        => ipcRenderer.invoke('work:import-jira', { issueKey: key }),
+
+  onWorkStepComplete: (cb) => {
+    const h = (_e, d) => cb(d);
+    ipcRenderer.on('work:step-complete', h);
+    return () => ipcRenderer.removeListener('work:step-complete', h);
+  },
+  onWorkStepError: (cb) => {
+    const h = (_e, d) => cb(d);
+    ipcRenderer.on('work:step-error', h);
+    return () => ipcRenderer.removeListener('work:step-error', h);
+  },
+
   // ── Window ─────────────────────────────────────────────────────────────────
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),

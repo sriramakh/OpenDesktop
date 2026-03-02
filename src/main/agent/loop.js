@@ -21,14 +21,18 @@ const { v4: uuidv4 } = require('uuid');
 const { TOOL_SCHEMAS } = require('./tools/tool-schemas');
 
 class AgentLoop {
-  constructor({ toolRegistry, llm, permissions, emit, summarizer }) {
+  constructor({ toolRegistry, llm, permissions, emit, summarizer, memory, piiDetector, policyEngine }) {
     this.toolRegistry = toolRegistry;
     this.llm = llm;
     this.permissions = permissions;
     this.emit = emit;
-    this.summarizer = summarizer || null;
+    this.summarizer   = summarizer   || null;
+    this.memory       = memory       || null;
+    this.piiDetector  = piiDetector  || null;
+    this.policyEngine = policyEngine || null;
     this.cancelled = false;
     this.pendingApprovals = new Map();
+    this._sessionId = null; // Set by caller if available
   }
 
   cancel() {
@@ -74,15 +78,19 @@ class AgentLoop {
 
       this.emit('agent:thinking', { taskId, turn: turns });
 
-      // Get tool definitions in the format the current provider expects
-      const toolDefs = this.toolRegistry.getToolDefinitions(
-        this.llm.getCurrentProvider()
-      );
+      // Get tool definitions in the format the *effective* provider expects.
+      // options.provider may override the global default (e.g. per-step model in Work Mode),
+      // so we must use the overridden provider here — not just getCurrentProvider() —
+      // otherwise Anthropic-format schemas get sent to an OpenAI endpoint (or vice versa),
+      // causing "function name or parameters is empty" HTTP 400 errors.
+      const effectiveProvider = options.provider || this.llm.getCurrentProvider();
+      const toolDefs = this.toolRegistry.getToolDefinitions(effectiveProvider);
 
       // Truncate conversation if it's getting too large for the model's context
       this._truncateConversation(conversation, systemPrompt);
 
-      // Call LLM — returns { text, toolCalls, rawContent, stopReason }
+      // Call LLM — returns { text, toolCalls, rawContent, stopReason, usage }
+      // options.model / options.provider allow per-step model overrides from Work Mode
       let response;
       try {
         response = await this.llm.callWithTools(systemPrompt, conversation, toolDefs, {
@@ -90,10 +98,32 @@ class AgentLoop {
             accumulatedText += token;
             this.emit('agent:token', { taskId, token });
           },
+          ...(options.provider ? { provider: options.provider } : {}),
+          ...(options.model    ? { model:    options.model    } : {}),
         });
       } catch (err) {
         // Surface LLM errors clearly
         throw new Error(`LLM call failed (turn ${turns}): ${err.message}`);
+      }
+
+      // Log token usage and cost
+      if (response.usage && this.memory) {
+        try {
+          const { estimateCost } = require('./llm');
+          const provider = this.llm.getCurrentProvider();
+          const model    = options.model || '';
+          const cost     = estimateCost(model, response.usage);
+          this.memory.logUsage({
+            taskId,
+            sessionId:        this._sessionId,
+            provider,
+            model,
+            inputTokens:      response.usage.inputTokens,
+            outputTokens:     response.usage.outputTokens,
+            estimatedCostUsd: cost,
+            turn:             turns,
+          });
+        } catch { /* non-critical */ }
       }
 
       // Append assistant turn to conversation history
@@ -277,12 +307,12 @@ class AgentLoop {
       }
     }
 
-    // Execute all approved calls in parallel (capped at 4 concurrent)
+    // Execute all approved calls in parallel (capped at 6 concurrent)
     const toExecute = [...safe, ...approvedDangerous];
     const results = await this._parallelWithLimit(
       toExecute,
       (tc) => this._executeSingleTool(tc, taskId),
-      4
+      6
     );
 
     return results.map((r, i) => {
@@ -323,6 +353,49 @@ class AgentLoop {
     // Normalize inputs: Ollama may send JSON strings for array/object params
     const normalizedInput = this._normalizeToolInput(tc.name, tc.input);
 
+    // ── Policy engine check ────────────────────────────────────────────────
+    if (this.policyEngine) {
+      try {
+        const policy = this.policyEngine.evaluate(tc.name, normalizedInput);
+        if (!policy.allowed && policy.action === 'block') {
+          return {
+            id: tc.id, name: tc.name,
+            content: `[Policy Block] ${policy.message}`,
+            error: 'policy_block',
+          };
+        }
+        if (policy.action === 'require_approval') {
+          const approved = await this._requestApproval(
+            { tool: tc.name, params: normalizedInput, riskLevel: 'policy', policyMessage: policy.message },
+            taskId
+          );
+          if (!approved) {
+            return { id: tc.id, name: tc.name, content: `Policy approval denied: ${policy.message}`, error: 'denied' };
+          }
+        }
+      } catch { /* policy check is non-critical */ }
+    }
+
+    // ── PII detection (write tools only) ──────────────────────────────────
+    if (this.piiDetector) {
+      try {
+        const { WRITE_TOOLS } = this.piiDetector;
+        if (WRITE_TOOLS && WRITE_TOOLS.has(tc.name)) {
+          const scan = this.piiDetector.scan(JSON.stringify(normalizedInput));
+          if (scan.found) {
+            const summary = this.piiDetector.summarizeFindings(scan.findings);
+            const approved = await this._requestApproval(
+              { tool: tc.name, params: normalizedInput, riskLevel: 'pii', piiSummary: summary },
+              taskId
+            );
+            if (!approved) {
+              return { id: tc.id, name: tc.name, content: `PII approval denied. Detected: ${summary}`, error: 'denied' };
+            }
+          }
+        }
+      } catch { /* pii check is non-critical */ }
+    }
+
     this.emit('agent:tool-start', {
       taskId,
       id: tc.id,
@@ -330,9 +403,12 @@ class AgentLoop {
       input: normalizedInput,
     });
 
-    // Determine timeout: office_* and browser_* tools get 120s; others get 30s
+    const startTime = Date.now();
+
+    // Determine timeout: office_*, browser_* get 120s; pptx_* get 360s (LLM call + Python render); others get 30s
     const isLongRunning = tc.name.startsWith('office_') || tc.name.startsWith('browser_');
-    const timeoutMs = isLongRunning ? 120_000 : 30_000;
+    const isPptx = tc.name.startsWith('pptx_');
+    const timeoutMs = isPptx ? 360_000 : isLongRunning ? 120_000 : 30_000;
 
     // Transient errors worth retrying
     const isTransient = (err) =>
@@ -351,6 +427,7 @@ class AgentLoop {
         ]);
 
         const content = output === undefined || output === null ? '' : String(output);
+        const durationMs = Date.now() - startTime;
 
         this.emit('agent:tool-end', {
           taskId,
@@ -360,17 +437,32 @@ class AgentLoop {
           outputPreview: content.slice(0, 300),
         });
 
+        // Audit log
+        if (this.memory) {
+          try {
+            const permLevel = this.permissions?.classify ? this.permissions.classify(tc.name, normalizedInput) : null;
+            this.memory.logToolCall({
+              taskId, sessionId: this._sessionId,
+              toolName: tc.name, toolInput: normalizedInput,
+              outputPreview: content.slice(0, 500), success: true,
+              permissionLevel: permLevel, durationMs,
+            });
+          } catch { /* non-critical */ }
+        }
+
         return { id: tc.id, name: tc.name, content };
       } catch (err) {
         lastErr = err;
-        // Only retry on transient errors, and not on the last attempt
+        // Only retry on transient errors, and not on the last attempt (exponential backoff)
         if (isTransient(err) && attempt < MAX_RETRIES) {
-          await new Promise((r) => setTimeout(r, 300));
+          await new Promise((r) => setTimeout(r, 300 * (2 ** attempt)));
           continue;
         }
         break;
       }
     }
+
+    const durationMs = Date.now() - startTime;
 
     this.emit('agent:tool-end', {
       taskId,
@@ -379,6 +471,18 @@ class AgentLoop {
       success: false,
       error: lastErr.message,
     });
+
+    // Audit log (failure)
+    if (this.memory) {
+      try {
+        this.memory.logToolCall({
+          taskId, sessionId: this._sessionId,
+          toolName: tc.name, toolInput: normalizedInput,
+          success: false, error: lastErr.message,
+          durationMs,
+        });
+      } catch { /* non-critical */ }
+    }
 
     // Return error as content so the LLM can recover
     return {
@@ -405,31 +509,29 @@ class AgentLoop {
     const systemTokens = this._estimateTokens(systemPrompt);
     const budget = MAX_CONVERSATION_TOKENS - systemTokens;
 
-    // Estimate current conversation size
-    let totalTokens = 0;
-    for (const msg of conversation) {
-      totalTokens += this._estimateTokens(msg.content);
+    // Single-pass token estimation — O(n) instead of O(n²)
+    const tokenCounts = conversation.map((msg) => {
+      let t = this._estimateTokens(msg.content);
       if (msg.results) {
-        for (const r of msg.results) {
-          totalTokens += this._estimateTokens(r.content);
-        }
+        for (const r of msg.results) t += this._estimateTokens(r.content);
       }
-    }
+      return t;
+    });
 
+    let totalTokens = tokenCounts.reduce((a, b) => a + b, 0);
     if (totalTokens <= budget) return;
 
-    // Strategy: keep the first user message and the most recent messages.
-    // Remove older assistant/tool_results pairs from the middle.
-    while (totalTokens > budget && conversation.length > 3) {
-      // Find the first removable message (skip index 0 = first user message)
-      const removed = conversation.splice(1, 1)[0];
-      let removedTokens = this._estimateTokens(removed.content);
-      if (removed.results) {
-        for (const r of removed.results) {
-          removedTokens += this._estimateTokens(r.content);
-        }
-      }
-      totalTokens -= removedTokens;
+    // Strategy: keep index 0 (first user message) + most recent messages.
+    // Find how many messages to remove from position 1 in a single pass,
+    // then do ONE splice — O(n) total instead of O(n²) from repeated splice(1,1).
+    let removeCount = 0;
+    for (let i = 1; i < conversation.length - 2 && totalTokens > budget; i++) {
+      totalTokens -= tokenCounts[i];
+      removeCount++;
+    }
+
+    if (removeCount > 0) {
+      conversation.splice(1, removeCount);
     }
   }
 
@@ -485,13 +587,13 @@ class AgentLoop {
     return new Promise((resolve) => {
       this.pendingApprovals.set(requestId, ({ approved }) => resolve(approved));
 
-      // Auto-timeout after 5 minutes
+      // Auto-timeout after 1 minute
       setTimeout(() => {
         if (this.pendingApprovals.has(requestId)) {
           this.pendingApprovals.delete(requestId);
           resolve(false);
         }
-      }, 300_000);
+      }, 60_000);
     });
   }
 }

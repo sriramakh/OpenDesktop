@@ -35,25 +35,27 @@ Built with **Electron + React + Node.js** — everything runs locally on your ma
 │  └──────────┬────────────────────────┬─────────────────┘ │
 │  ┌──────────┴──────────┐  ┌──────────┴────────────────┐ │
 │  │   Tool Registry      │  │    Memory System          │ │
-│  │  • Filesystem (13)   │  │  • Short-term (100 msg)   │ │
-│  │  • Office (28)       │  │  • Long-term (SQLite FTS) │ │
-│  │  • App Control (6)   │  │  • Full-text search       │ │
-│  │  • Browser (5)       │  │  • JSON fallback          │ │
-│  │  • Browser Tabs (9)  │  ├──────────────────────────┤ │
-│  │  • Presentation (15) │  │  Permission Manager       │ │
-│  │  • Productivity (12) │  │  safe / sensitive / danger │ │
-│  │  • GitHub (8)        │  │                          │ │
+│  │  • Office (28)       │  │  • Short-term (100 msg)   │ │
+│  │  • Excel Master (28) │  │  • Long-term (SQLite FTS) │ │
+│  │  • Presentation (15) │  │  • Full-text search       │ │
+│  │  • Filesystem (13)   │  │  • JSON fallback          │ │
+│  │  • Productivity (12) │  ├──────────────────────────┤ │
+│  │  • Browser Tabs (9)  │  │  Permission Manager       │ │
+│  │  • GitHub (8)        │  │  safe / sensitive / danger │ │
 │  │  • Database (6)      │  │                          │ │
 │  │  • Workflow (6)      │  │                          │ │
 │  │  • Scheduler (6)     │  │                          │ │
+│  │  • App Control (6)   │  │                          │ │
+│  │  • System (6)        │  │                          │ │
+│  │  • Browser (5)       │  │                          │ │
 │  │  • Messaging (5)     │  │                          │ │
+│  │  • Connectors (5)    │  │                          │ │
 │  │  • Search/Fetch (4)  │  │                          │ │
 │  │  • Orchestration (4) │  │                          │ │
 │  │  • LLM (4)           │  │                          │ │
 │  │  • Reminders (3)     │  │                          │ │
 │  │  • Content (1)       │  │                          │ │
-│  │  + more...           │  │                          │ │
-│  │  Total: 146 tools    │  └──────────────────────────┘ │
+│  │  Total: 174 tools    │  └──────────────────────────┘ │
 │  └──────────────────────┘                                │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -119,7 +121,7 @@ Choose from **11 providers** and **80+ models** directly in the Settings UI:
 - **Encrypted API key storage** — AES-256-GCM encryption with machine-specific key derivation (PBKDF2, 100K iterations)
 - Keys are stored in `~/.config/open-desktop/.keystore.enc`, never in plaintext
 
-### Unified Tool System (146 tools)
+### Unified Tool System (174 tools)
 
 All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native function calling with every LLM provider.
 
@@ -144,7 +146,8 @@ All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native f
 | **Scheduler** | `schedule_task`, `schedule_list`, `schedule_cancel`, `schedule_pause`, `schedule_resume`, `schedule_update` | 6 | Safe/Sensitive |
 | **Messaging** | `slack_send`, `slack_list_channels`, `discord_send`, `email_send`, `sms_send` | 5 | Sensitive |
 | **Orchestration** | `agent_spawn`, `agent_communicate`, `agent_list`, `agent_terminate` | 4 | Sensitive |
-| **Total** | | **146** | |
+| **Excel Master** | `excel_auto_build`, `excel_add_chart`, `excel_add_kpi_row`, `excel_add_table`, `excel_modify_object`, `excel_write_cells`, `excel_format_range`, `excel_add_feature`, `excel_query`, `excel_save`, `excel_undo`, `excel_redo`, + 8 more | 28 | Safe/Sensitive |
+| **Total** | | **174** | |
 
 #### Key tool capabilities
 

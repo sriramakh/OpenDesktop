@@ -21,6 +21,8 @@ import {
   Plug,
   Wifi,
   WifiOff,
+  Briefcase,
+  Import,
 } from 'lucide-react';
 
 const PERSONA_ICONS = {
@@ -49,7 +51,7 @@ const TOOL_CATEGORY_ICONS = {
   mcp: Plug,
 };
 
-export default function Sidebar({ activePersona, onPersonaChange, history, selectedHistoryId, onSelectHistory, tools, mcpServers, showContext, onToggleContext, onNewSession }) {
+export default function Sidebar({ activePersona, onPersonaChange, history, selectedHistoryId, onSelectHistory, tools, mcpServers, showContext, onToggleContext, onNewSession, workItems, selectedWorkItemId, onSelectWorkItem, onNewWorkItem, onImportJira }) {
   const [expandedSection, setExpandedSection] = useState('persona');
 
   const toggleSection = (section) => {
@@ -212,6 +214,69 @@ export default function Sidebar({ activePersona, onPersonaChange, history, selec
                   </button>
                 );
               })
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Work Items */}
+      <div className="p-3 border-t border-surface-3">
+        <button
+          className="flex items-center justify-between w-full text-xs font-medium text-muted uppercase tracking-wider mb-2 hover:text-zinc-300 transition-colors"
+          onClick={() => toggleSection('work')}
+        >
+          <span className="flex items-center gap-1.5">
+            <Briefcase size={11} /> Work
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={(e) => { e.stopPropagation(); onImportJira?.(); }}
+              title="Import from Jira"
+              className="p-0.5 rounded hover:bg-surface-3 text-zinc-600 hover:text-amber-400 transition-colors"
+            >
+              <Import size={10} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onNewWorkItem?.(); }}
+              title="New work item"
+              className="p-0.5 rounded hover:bg-surface-3 text-zinc-600 hover:text-accent transition-colors"
+            >
+              <Plus size={10} />
+            </button>
+            {expandedSection === 'work' ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          </div>
+        </button>
+
+        {expandedSection === 'work' && (
+          <div className="space-y-0.5 max-h-48 overflow-y-auto animate-fade-in">
+            {(!workItems?.length) ? (
+              <p className="text-xs text-zinc-600 italic px-2">No work items</p>
+            ) : (
+              workItems.map((wi) => (
+                <button
+                  key={wi.id}
+                  onClick={() => onSelectWorkItem?.(wi)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors group ${
+                    selectedWorkItemId === wi.id
+                      ? 'bg-accent/10 border border-accent/30'
+                      : 'hover:bg-surface-2 border border-transparent'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    wi.status === 'done'        ? 'bg-emerald-400' :
+                    wi.status === 'in_progress' ? 'bg-amber-400 animate-pulse' :
+                    'bg-zinc-600'
+                  }`} />
+                  <span className={`text-xs truncate flex-1 ${
+                    selectedWorkItemId === wi.id ? 'text-white' : 'text-zinc-400 group-hover:text-zinc-200'
+                  }`}>
+                    {wi.title}
+                  </span>
+                  {wi.jiraKey && (
+                    <span className="text-[9px] text-blue-400 shrink-0">{wi.jiraKey}</span>
+                  )}
+                </button>
+              ))
             )}
           </div>
         )}

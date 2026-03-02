@@ -40,6 +40,11 @@ import {
   Moon,
   Sunset,
   FolderOpen,
+  Plug2,
+  Database,
+  GitMerge,
+  ShieldCheck,
+  BarChart3,
 } from 'lucide-react';
 
 const api = window.api;
@@ -126,15 +131,6 @@ const PROVIDER_META = {
     description: 'Llama 405B, Qwen, DeepSeek and more on Together AI',
     docsUrl: 'https://api.together.ai/settings/api-keys',
   },
-  perplexity: {
-    icon: Search,
-    color: 'text-cyan-400',
-    bg: 'bg-cyan-500/10',
-    border: 'border-cyan-500/25',
-    activeBorder: 'border-cyan-500/60',
-    description: 'Sonar models with built-in web search from Perplexity',
-    docsUrl: 'https://www.perplexity.ai/settings/api',
-  },
   minimax: {
     icon: Cloud,
     color: 'text-indigo-400',
@@ -187,6 +183,33 @@ export default function SettingsModal({ onClose, theme = 'dark', onThemeChange }
   });
   const [mcpAddError, setMCPAddError] = useState(null);
 
+  // Integrations tab
+  const [integrationKeys, setIntegrationKeys] = useState({});
+  const [apiServerStatus, setApiServerStatus] = useState({ running: false, port: 57000 });
+
+  // Databases tab
+  const [dbConnections, setDbConnections] = useState([]);
+  const [showDbForm, setShowDbForm] = useState(false);
+  const [dbForm, setDbForm] = useState({ name: '', type: 'sqlite', host: '', port: '', database: '', user: '', password: '' });
+  const [dbLoading, setDbLoading] = useState(false);
+  const [dbTestResults, setDbTestResults] = useState({});
+
+  // Workflows tab
+  const [workflows, setWorkflows] = useState([]);
+  const [showWorkflowForm, setShowWorkflowForm] = useState(false);
+  const [workflowForm, setWorkflowForm] = useState({ name: '', description: '', prompt: '' });
+  const [workflowLoading, setWorkflowLoading] = useState(false);
+
+  // Policies tab
+  const [policies, setPolicies] = useState([]);
+  const [showPolicyForm, setShowPolicyForm] = useState(false);
+  const [policyForm, setPolicyForm] = useState({ name: '', tool: '', action: 'block', pattern: '' });
+
+  // Usage tab
+  const [usageSummary, setUsageSummary] = useState(null);
+  const [auditLog, setAuditLog] = useState([]);
+  const [auditSearch, setAuditSearch] = useState('');
+
   const refreshMCPServers = useCallback(async () => {
     try {
       const servers = await api?.listMCPServers();
@@ -212,6 +235,27 @@ export default function SettingsModal({ onClose, theme = 'dark', onThemeChange }
       refreshOllamaModels();
     }
   }, [settings.llmProvider]);
+
+  // Load data for new tabs on activation
+  useEffect(() => {
+    if (activeTab === 'integrations') {
+      api?.listApiKeys?.().then((k) => setIntegrationKeys(k || {})).catch(console.error);
+      api?.getApiServerStatus?.().then((s) => { if (s) setApiServerStatus(s); }).catch(console.error);
+    }
+    if (activeTab === 'databases') {
+      api?.listDbConnections?.().then((c) => setDbConnections(c || [])).catch(console.error);
+    }
+    if (activeTab === 'workflows') {
+      api?.listWorkflows?.().then((r) => setWorkflows(r?.workflows || [])).catch(console.error);
+    }
+    if (activeTab === 'policies') {
+      api?.listPolicies?.().then((r) => setPolicies(r?.rules || [])).catch(console.error);
+    }
+    if (activeTab === 'usage') {
+      api?.getUsageSummary?.().then((s) => { if (s) setUsageSummary(s); }).catch(console.error);
+      api?.getAuditLog?.({ limit: 50 }).then((r) => setAuditLog(r?.entries || [])).catch(console.error);
+    }
+  }, [activeTab]);
 
   const refreshOllamaModels = useCallback(async () => {
     setOllamaLoading(true);
@@ -341,11 +385,16 @@ export default function SettingsModal({ onClose, theme = 'dark', onThemeChange }
   };
 
   const tabs = [
-    { id: 'llm',        label: 'LLM & Models', icon: Brain   },
-    { id: 'agent',      label: 'Agent',         icon: Zap     },
-    { id: 'permissions',label: 'Permissions',   icon: Shield  },
-    { id: 'mcp',        label: 'MCP Servers',   icon: Plug    },
-    { id: 'appearance', label: 'Appearance',    icon: Palette },
+    { id: 'llm',          label: 'LLM & Models',  icon: Brain       },
+    { id: 'agent',        label: 'Agent',          icon: Zap         },
+    { id: 'permissions',  label: 'Permissions',    icon: Shield      },
+    { id: 'mcp',          label: 'MCP Servers',    icon: Plug        },
+    { id: 'integrations', label: 'Integrations',   icon: Plug2       },
+    { id: 'databases',    label: 'Databases',      icon: Database    },
+    { id: 'workflows',    label: 'Workflows',      icon: GitMerge    },
+    { id: 'policies',     label: 'Policies',       icon: ShieldCheck },
+    { id: 'usage',        label: 'Usage & Audit',  icon: BarChart3   },
+    { id: 'appearance',   label: 'Appearance',     icon: Palette     },
   ];
 
   // Build model list — merge catalog with Ollama-discovered models
@@ -388,7 +437,7 @@ export default function SettingsModal({ onClose, theme = 'dark', onThemeChange }
         </div>
 
         {/* Tabs */}
-        <div className="flex px-6 pt-3 gap-1 border-b border-surface-3">
+        <div className="flex px-6 pt-3 gap-1 border-b border-surface-3 overflow-x-auto scrollbar-none">
           {tabs.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -995,6 +1044,511 @@ export default function SettingsModal({ onClose, theme = 'dark', onThemeChange }
             </div>
           )}
 
+          {activeTab === 'integrations' && (
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Developer Platforms</h3>
+                <IntKeyField keyName="github" label="GitHub Personal Access Token" placeholder="ghp_..." stored={integrationKeys} onSaved={setIntegrationKeys} />
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Project Management</h3>
+                <IntKeyField keyName="jira_token" label="Jira API Token" placeholder="ATATT3..." stored={integrationKeys} onSaved={setIntegrationKeys} />
+                <IntKeyField keyName="jira_email" label="Jira Account Email" placeholder="you@company.com" stored={integrationKeys} onSaved={setIntegrationKeys} />
+                <IntKeyField keyName="jira_base_url" label="Jira Base URL" placeholder="https://myorg.atlassian.net" stored={integrationKeys} onSaved={setIntegrationKeys} />
+                <IntKeyField keyName="linear_token" label="Linear API Key" placeholder="lin_api_..." stored={integrationKeys} onSaved={setIntegrationKeys} />
+                <IntKeyField keyName="notion_token" label="Notion Integration Token" placeholder="secret_..." stored={integrationKeys} onSaved={setIntegrationKeys} />
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Messaging</h3>
+                <IntKeyField keyName="slack_webhook" label="Slack Incoming Webhook URL" placeholder="https://hooks.slack.com/services/..." stored={integrationKeys} onSaved={setIntegrationKeys} />
+                <IntKeyField keyName="slack_bot_token" label="Slack Bot Token (for search)" placeholder="xoxb-..." stored={integrationKeys} onSaved={setIntegrationKeys} />
+                <IntKeyField keyName="teams_webhook" label="Microsoft Teams Webhook URL" placeholder="https://...webhook.office.com/..." stored={integrationKeys} onSaved={setIntegrationKeys} />
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">HTTP API Server</h3>
+                <div className="flex items-center justify-between p-3 bg-surface-0/50 border border-surface-3 rounded-xl">
+                  <div>
+                    <p className="text-xs font-medium text-zinc-300">Local REST API</p>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">
+                      {apiServerStatus.running
+                        ? `Running · http://localhost:${apiServerStatus.port}/v1/`
+                        : 'Stopped — enables programmatic access to the agent'}
+                    </p>
+                  </div>
+                  <Toggle
+                    checked={apiServerStatus.running}
+                    onChange={async (v) => {
+                      await api?.toggleApiServer?.(v);
+                      const s = await api?.getApiServerStatus?.();
+                      if (s) setApiServerStatus(s);
+                    }}
+                  />
+                </div>
+                {apiServerStatus.running && (
+                  <p className="text-[10px] text-zinc-600 px-1">
+                    Auth: <span className="font-mono text-zinc-500">X-API-Key: &lt;your-key&gt;</span>.{' '}
+                    Endpoints: <span className="font-mono text-zinc-500">POST /v1/agent/run</span>,{' '}
+                    <span className="font-mono text-zinc-500">GET /v1/tools</span>,{' '}
+                    <span className="font-mono text-zinc-500">GET /v1/health</span>
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'databases' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-zinc-400">Connect SQLite, PostgreSQL, or MySQL databases.</p>
+                <button
+                  onClick={() => setShowDbForm((v) => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 border border-accent/30 text-accent text-xs hover:bg-accent/25 transition-colors"
+                >
+                  <Plus size={12} /> Add Connection
+                </button>
+              </div>
+
+              {showDbForm && (
+                <div className="bg-surface-0/60 border border-surface-3 rounded-xl p-4 space-y-3 animate-fade-in">
+                  <p className="text-xs font-medium text-zinc-300">New Database Connection</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-zinc-500 mb-1 block">Display Name</label>
+                      <input type="text" value={dbForm.name} onChange={(e) => setDbForm((f) => ({ ...f, name: e.target.value }))} className="input-field" placeholder="My Database" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-500 mb-1 block">Type</label>
+                      <div className="relative">
+                        <select value={dbForm.type} onChange={(e) => setDbForm((f) => ({ ...f, type: e.target.value }))} className="input-field appearance-none pr-7">
+                          <option value="sqlite">SQLite</option>
+                          <option value="postgresql">PostgreSQL</option>
+                          <option value="mysql">MySQL</option>
+                        </select>
+                        <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+                      </div>
+                    </div>
+                  </div>
+                  {dbForm.type === 'sqlite' ? (
+                    <div>
+                      <label className="text-[10px] text-zinc-500 mb-1 block">File Path</label>
+                      <input type="text" value={dbForm.database} onChange={(e) => setDbForm((f) => ({ ...f, database: e.target.value }))} className="input-field font-mono" placeholder="/Users/you/data.db" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="col-span-2">
+                          <label className="text-[10px] text-zinc-500 mb-1 block">Host</label>
+                          <input type="text" value={dbForm.host} onChange={(e) => setDbForm((f) => ({ ...f, host: e.target.value }))} className="input-field" placeholder="localhost" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-zinc-500 mb-1 block">Port</label>
+                          <input type="text" value={dbForm.port} onChange={(e) => setDbForm((f) => ({ ...f, port: e.target.value }))} className="input-field" placeholder={dbForm.type === 'postgresql' ? '5432' : '3306'} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-[10px] text-zinc-500 mb-1 block">Database</label>
+                          <input type="text" value={dbForm.database} onChange={(e) => setDbForm((f) => ({ ...f, database: e.target.value }))} className="input-field" placeholder="mydb" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-zinc-500 mb-1 block">User</label>
+                          <input type="text" value={dbForm.user} onChange={(e) => setDbForm((f) => ({ ...f, user: e.target.value }))} className="input-field" placeholder="postgres" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-zinc-500 mb-1 block">Password</label>
+                          <input type="password" value={dbForm.password} onChange={(e) => setDbForm((f) => ({ ...f, password: e.target.value }))} className="input-field" placeholder="••••••••" />
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button onClick={() => { setShowDbForm(false); setDbForm({ name: '', type: 'sqlite', host: '', port: '', database: '', user: '', password: '' }); }} className="px-3 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Cancel</button>
+                    <button
+                      onClick={async () => {
+                        setDbLoading(true);
+                        try {
+                          await api?.addDbConnection?.(dbForm);
+                          setShowDbForm(false);
+                          setDbForm({ name: '', type: 'sqlite', host: '', port: '', database: '', user: '', password: '' });
+                          const conns = await api?.listDbConnections?.();
+                          setDbConnections(conns || []);
+                        } catch (e) { console.error(e); }
+                        setDbLoading(false);
+                      }}
+                      disabled={dbLoading || !dbForm.name || !dbForm.database}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/20 text-accent border border-accent/30 text-xs hover:bg-accent/30 transition-colors disabled:opacity-50"
+                    >
+                      {dbLoading ? <RefreshCw size={11} className="animate-spin" /> : <Plus size={11} />}
+                      Add
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {dbConnections.length === 0 && !showDbForm ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Database size={24} className="text-zinc-700 mb-2" />
+                  <p className="text-xs text-zinc-600">No database connections</p>
+                  <p className="text-[10px] text-zinc-700 mt-0.5">Add a connection to query databases with the agent</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {dbConnections.map((conn) => (
+                    <div key={conn.id} className="flex items-center justify-between px-3 py-2.5 bg-surface-0/50 border border-surface-3 rounded-xl">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Database size={13} className="text-zinc-500 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-zinc-300 truncate">{conn.name}</p>
+                          <p className="text-[10px] text-zinc-600 font-mono truncate">
+                            {conn.type}{conn.host ? ` · ${conn.host}` : ''}{conn.database ? ` / ${conn.database}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {dbTestResults[conn.id] && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${dbTestResults[conn.id] === 'ok' ? 'text-emerald-400 bg-emerald-500/10' : 'text-red-400 bg-red-500/10'}`}>
+                            {dbTestResults[conn.id] === 'ok' ? '✓ OK' : '✗ Failed'}
+                          </span>
+                        )}
+                        <button
+                          onClick={async () => {
+                            try {
+                              await api?.testDbConnection?.(conn.id);
+                              setDbTestResults((r) => ({ ...r, [conn.id]: 'ok' }));
+                            } catch { setDbTestResults((r) => ({ ...r, [conn.id]: 'error' })); }
+                          }}
+                          className="text-[10px] text-zinc-500 hover:text-zinc-300 px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 border border-surface-3 transition-colors"
+                        >Test</button>
+                        <button
+                          onClick={async () => {
+                            await api?.removeDbConnection?.(conn.id);
+                            setDbConnections((cs) => cs.filter((c) => c.id !== conn.id));
+                          }}
+                          className="p-1 text-zinc-600 hover:text-red-400 transition-colors rounded"
+                        ><Trash2 size={12} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'workflows' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-zinc-400">Saved prompt workflows with variable substitution.</p>
+                <button
+                  onClick={() => setShowWorkflowForm((v) => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 border border-accent/30 text-accent text-xs hover:bg-accent/25 transition-colors"
+                >
+                  <Plus size={12} /> New Workflow
+                </button>
+              </div>
+
+              {showWorkflowForm && (
+                <div className="bg-surface-0/60 border border-surface-3 rounded-xl p-4 space-y-3 animate-fade-in">
+                  <p className="text-xs font-medium text-zinc-300">New Workflow</p>
+                  <div>
+                    <label className="text-[10px] text-zinc-500 mb-1 block">Name</label>
+                    <input type="text" value={workflowForm.name} onChange={(e) => setWorkflowForm((f) => ({ ...f, name: e.target.value }))} className="input-field" placeholder="weekly-report" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-zinc-500 mb-1 block">Description (optional)</label>
+                    <input type="text" value={workflowForm.description} onChange={(e) => setWorkflowForm((f) => ({ ...f, description: e.target.value }))} className="input-field" placeholder="Brief description" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-zinc-500 mb-1 block">{'Prompt — use {{variableName}} for dynamic substitution'}</label>
+                    <textarea
+                      value={workflowForm.prompt}
+                      onChange={(e) => setWorkflowForm((f) => ({ ...f, prompt: e.target.value }))}
+                      className="input-field resize-none font-mono"
+                      rows={4}
+                      placeholder="Summarize the GitHub issues for {{repo}} and write a report..."
+                    />
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button onClick={() => { setShowWorkflowForm(false); setWorkflowForm({ name: '', description: '', prompt: '' }); }} className="px-3 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Cancel</button>
+                    <button
+                      onClick={async () => {
+                        setWorkflowLoading(true);
+                        try {
+                          await api?.saveWorkflow?.(workflowForm);
+                          setShowWorkflowForm(false);
+                          setWorkflowForm({ name: '', description: '', prompt: '' });
+                          const r = await api?.listWorkflows?.();
+                          setWorkflows(r?.workflows || []);
+                        } catch (e) { console.error(e); }
+                        setWorkflowLoading(false);
+                      }}
+                      disabled={workflowLoading || !workflowForm.name || !workflowForm.prompt}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/20 text-accent border border-accent/30 text-xs hover:bg-accent/30 transition-colors disabled:opacity-50"
+                    >
+                      {workflowLoading ? <RefreshCw size={11} className="animate-spin" /> : <Check size={11} />}
+                      Save
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {workflows.length === 0 && !showWorkflowForm ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <GitMerge size={24} className="text-zinc-700 mb-2" />
+                  <p className="text-xs text-zinc-600">No saved workflows</p>
+                  <p className="text-[10px] text-zinc-700 mt-0.5">{'Create reusable prompts with {{variable}} substitution'}</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {workflows.map((wf) => (
+                    <div key={wf.id} className="bg-surface-0/50 border border-surface-3 rounded-xl p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-zinc-300 truncate">{wf.name}</p>
+                          {wf.description && <p className="text-[10px] text-zinc-500 mt-0.5 truncate">{wf.description}</p>}
+                          {wf.variables?.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {wf.variables.map((v) => (
+                                <span key={v} className="text-[9px] text-accent/80 bg-accent/10 px-1.5 py-0.5 rounded font-mono">{`{{${v}}}`}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[10px] text-zinc-600">{wf.runCount || 0} runs</span>
+                          <button
+                            onClick={() => api?.runWorkflow?.(wf.id)}
+                            className="text-[10px] text-accent/80 bg-accent/10 border border-accent/20 px-2 py-0.5 rounded hover:bg-accent/20 transition-colors"
+                          >Run</button>
+                          <button
+                            onClick={async () => {
+                              await api?.deleteWorkflow?.(wf.id);
+                              setWorkflows((ws) => ws.filter((w) => w.id !== wf.id));
+                            }}
+                            className="p-1 text-zinc-600 hover:text-red-400 transition-colors rounded"
+                          ><Trash2 size={12} /></button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'policies' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-zinc-400">Control which tools the agent can run and when approval is required.</p>
+                <button
+                  onClick={() => setShowPolicyForm((v) => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 border border-accent/30 text-accent text-xs hover:bg-accent/25 transition-colors"
+                >
+                  <Plus size={12} /> Add Rule
+                </button>
+              </div>
+
+              {showPolicyForm && (
+                <div className="bg-surface-0/60 border border-surface-3 rounded-xl p-4 space-y-3 animate-fade-in">
+                  <p className="text-xs font-medium text-zinc-300">New Policy Rule</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-zinc-500 mb-1 block">Rule Name</label>
+                      <input type="text" value={policyForm.name} onChange={(e) => setPolicyForm((f) => ({ ...f, name: e.target.value }))} className="input-field" placeholder="Protect sensitive files" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-500 mb-1 block">Action</label>
+                      <div className="relative">
+                        <select value={policyForm.action} onChange={(e) => setPolicyForm((f) => ({ ...f, action: e.target.value }))} className="input-field appearance-none pr-7">
+                          <option value="block">Block (deny completely)</option>
+                          <option value="require_approval">Require approval</option>
+                          <option value="warn">Warn (allow with warning)</option>
+                        </select>
+                        <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" />
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-zinc-500 mb-1 block">Tool(s) — comma-separated (e.g. fs_write, fs_delete)</label>
+                    <input type="text" value={policyForm.tool} onChange={(e) => setPolicyForm((f) => ({ ...f, tool: e.target.value }))} className="input-field font-mono" placeholder="fs_write, fs_delete" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-zinc-500 mb-1 block">Path pattern to match (optional)</label>
+                    <input type="text" value={policyForm.pattern} onChange={(e) => setPolicyForm((f) => ({ ...f, pattern: e.target.value }))} className="input-field font-mono" placeholder="/Sensitive/ or .env" />
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button onClick={() => { setShowPolicyForm(false); setPolicyForm({ name: '', tool: '', action: 'block', pattern: '' }); }} className="px-3 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Cancel</button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const rule = {
+                            name: policyForm.name,
+                            tool: policyForm.tool.includes(',') ? policyForm.tool.split(',').map((t) => t.trim()) : policyForm.tool.trim(),
+                            action: policyForm.action,
+                            ...(policyForm.pattern && { condition: { path: { contains: policyForm.pattern } } }),
+                          };
+                          await api?.addPolicy?.(rule);
+                          setShowPolicyForm(false);
+                          setPolicyForm({ name: '', tool: '', action: 'block', pattern: '' });
+                          const r = await api?.listPolicies?.();
+                          setPolicies(r?.rules || []);
+                        } catch (e) { console.error(e); }
+                      }}
+                      disabled={!policyForm.name || !policyForm.tool}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/20 text-accent border border-accent/30 text-xs hover:bg-accent/30 transition-colors disabled:opacity-50"
+                    >
+                      <ShieldCheck size={11} /> Add Rule
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {policies.length === 0 && !showPolicyForm && (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <ShieldCheck size={24} className="text-zinc-700 mb-2" />
+                    <p className="text-xs text-zinc-600">No policy rules</p>
+                    <p className="text-[10px] text-zinc-700 mt-0.5">Add rules to govern tool access and require approval for sensitive actions</p>
+                  </div>
+                )}
+                {policies.map((rule) => (
+                  <div key={rule.id} className={`flex items-start justify-between gap-2 px-3 py-2.5 border rounded-xl ${
+                    rule.action === 'block' ? 'bg-red-500/5 border-red-500/20' :
+                    rule.action === 'require_approval' ? 'bg-amber-500/5 border-amber-500/20' :
+                    'bg-zinc-500/5 border-surface-3'
+                  }`}>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-medium text-zinc-300">{rule.name}</p>
+                        {rule.builtin && <span className="text-[9px] text-zinc-600 bg-surface-2 px-1.5 py-0.5 rounded">built-in</span>}
+                      </div>
+                      <p className="text-[10px] text-zinc-500 mt-0.5 font-mono truncate">
+                        {Array.isArray(rule.tool) ? rule.tool.join(', ') : rule.tool}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                        rule.action === 'block' ? 'text-red-400 bg-red-500/10' :
+                        rule.action === 'require_approval' ? 'text-amber-400 bg-amber-500/10' :
+                        'text-zinc-400 bg-surface-2'
+                      }`}>
+                        {rule.action === 'require_approval' ? 'approve' : rule.action}
+                      </span>
+                      {!rule.builtin && (
+                        <button
+                          onClick={async () => {
+                            await api?.removePolicy?.(rule.id);
+                            setPolicies((ps) => ps.filter((p) => p.id !== rule.id));
+                          }}
+                          className="p-1 text-zinc-600 hover:text-red-400 transition-colors rounded"
+                        ><Trash2 size={12} /></button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'usage' && (
+            <div className="space-y-4">
+              {usageSummary ? (
+                <>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-surface-0/50 border border-surface-3 rounded-xl p-3 text-center">
+                      <p className="text-[10px] text-zinc-500 mb-1">30-Day Cost</p>
+                      <p className="text-lg font-bold text-zinc-200">${(usageSummary.totalCostUsd || 0).toFixed(4)}</p>
+                    </div>
+                    <div className="bg-surface-0/50 border border-surface-3 rounded-xl p-3 text-center">
+                      <p className="text-[10px] text-zinc-500 mb-1">Input Tokens</p>
+                      <p className="text-sm font-semibold text-zinc-300">{((usageSummary.totalInputTokens || 0) / 1000).toFixed(1)}K</p>
+                    </div>
+                    <div className="bg-surface-0/50 border border-surface-3 rounded-xl p-3 text-center">
+                      <p className="text-[10px] text-zinc-500 mb-1">Output Tokens</p>
+                      <p className="text-sm font-semibold text-zinc-300">{((usageSummary.totalOutputTokens || 0) / 1000).toFixed(1)}K</p>
+                    </div>
+                  </div>
+                  {usageSummary.byProvider?.length > 0 && (
+                    <div>
+                      <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">By Provider / Model</h3>
+                      <div className="space-y-1.5">
+                        {usageSummary.byProvider.slice(0, 8).map((row, i) => {
+                          const maxCost = Math.max(...usageSummary.byProvider.map((r) => r.estimatedCostUsd || 0), 0.0001);
+                          const pct = Math.round(((row.estimatedCostUsd || 0) / maxCost) * 100);
+                          return (
+                            <div key={i} className="space-y-0.5">
+                              <div className="flex items-center justify-between text-[10px]">
+                                <span className="text-zinc-400 font-mono truncate max-w-[200px]">{row.provider} / {row.model}</span>
+                                <span className="text-zinc-500 shrink-0 ml-2">${(row.estimatedCostUsd || 0).toFixed(4)}</span>
+                              </div>
+                              <div className="h-1 rounded-full bg-surface-2">
+                                <div className="h-1 rounded-full bg-accent/50" style={{ width: `${pct}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-6 text-center">
+                  <BarChart3 size={24} className="text-zinc-700 mb-2" />
+                  <p className="text-xs text-zinc-600">No usage data yet</p>
+                  <p className="text-[10px] text-zinc-700 mt-0.5">Token costs appear after running tasks with cloud providers</p>
+                </div>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Audit Log</h3>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={auditSearch}
+                      onChange={(e) => setAuditSearch(e.target.value)}
+                      placeholder="Filter by tool..."
+                      className="text-[10px] bg-surface-0/60 border border-surface-3 rounded-lg px-2 py-1 text-zinc-400 placeholder-zinc-700 outline-none focus:border-accent/40 w-32"
+                    />
+                    <button
+                      onClick={async () => {
+                        try {
+                          const csv = await api?.exportAuditLog?.();
+                          if (csv) {
+                            const blob = new Blob([csv], { type: 'text/csv' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url; a.download = 'audit-log.csv'; a.click();
+                            URL.revokeObjectURL(url);
+                          }
+                        } catch (e) { console.error(e); }
+                      }}
+                      className="text-[10px] text-zinc-500 hover:text-zinc-300 px-2 py-1 rounded bg-surface-2 hover:bg-surface-3 border border-surface-3 transition-colors"
+                    >Export CSV</button>
+                  </div>
+                </div>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {auditLog
+                    .filter((e) => !auditSearch || e.toolName?.toLowerCase().includes(auditSearch.toLowerCase()))
+                    .slice(0, 30)
+                    .map((entry, i) => (
+                      <div key={i} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] ${entry.success ? 'bg-surface-0/40' : 'bg-red-500/5 border border-red-500/10'}`}>
+                        <span className={entry.success ? 'text-emerald-500' : 'text-red-400'}>{entry.success ? '✓' : '✗'}</span>
+                        <span className="font-mono text-zinc-400 w-32 shrink-0 truncate">{entry.toolName}</span>
+                        <span className="text-zinc-600 flex-1 truncate">{entry.outputPreview || entry.error || ''}</span>
+                        <span className="text-zinc-700 shrink-0">{entry.durationMs ? `${entry.durationMs}ms` : ''}</span>
+                      </div>
+                    ))}
+                  {auditLog.length === 0 && (
+                    <p className="text-[10px] text-zinc-700 py-4 text-center">No audit log entries yet</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'appearance' && (
             <div className="space-y-5">
               <p className="text-xs text-zinc-400">Choose the visual theme for the app. Your selection is saved instantly.</p>
@@ -1187,4 +1741,64 @@ function formatCtx(tokens) {
   if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
   if (tokens >= 1000) return `${(tokens / 1000).toFixed(0)}K`;
   return tokens.toString();
+}
+
+function IntKeyField({ keyName, label, placeholder, stored, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState('');
+  const [saving, setSaving] = useState(false);
+  const hasKey = !!stored[keyName];
+
+  const save = async () => {
+    if (!val.trim()) return;
+    setSaving(true);
+    try {
+      await api?.setApiKey(keyName, val.trim());
+      const keys = await api?.listApiKeys();
+      onSaved(keys || {});
+      setVal('');
+      setEditing(false);
+    } catch (e) { console.error(e); }
+    setSaving(false);
+  };
+
+  const remove = async () => {
+    await api?.removeApiKey(keyName);
+    const keys = await api?.listApiKeys();
+    onSaved(keys || {});
+  };
+
+  return (
+    <div className="space-y-1">
+      <label className="text-[10px] text-zinc-500 block">{label}</label>
+      {hasKey && !editing ? (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 flex items-center gap-2 bg-surface-0/60 border border-surface-3 rounded-lg px-3 py-1.5">
+            <Lock size={10} className="text-emerald-500 shrink-0" />
+            <span className="text-xs text-zinc-400 font-mono flex-1">{stored[keyName]}</span>
+            <span className="text-[9px] text-emerald-500/60 bg-emerald-500/10 px-1.5 py-0.5 rounded">saved</span>
+          </div>
+          <button onClick={() => setEditing(true)} className="px-2 py-1.5 rounded-lg text-xs bg-surface-2 text-zinc-400 hover:text-zinc-200 hover:bg-surface-3 transition-colors border border-surface-3">Edit</button>
+          <button onClick={remove} className="p-1.5 rounded-lg text-red-400/50 hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 size={11} /></button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <input
+            type="password"
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && save()}
+            className="input-field flex-1"
+            placeholder={placeholder}
+            autoComplete="off"
+          />
+          <button onClick={save} disabled={!val.trim() || saving} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-xs border border-emerald-500/30 transition-colors disabled:opacity-40">
+            {saving ? <RefreshCw size={10} className="animate-spin" /> : <Check size={10} />}
+            Save
+          </button>
+          {hasKey && <button onClick={() => { setEditing(false); setVal(''); }} className="px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Cancel</button>}
+        </div>
+      )}
+    </div>
+  );
 }

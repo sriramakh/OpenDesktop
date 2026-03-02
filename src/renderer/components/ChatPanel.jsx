@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronRight, Wrench, Bot, Sparkles,
   Terminal, Globe, FolderOpen, Cpu, RefreshCw, Eye,
   Paperclip, X as XIcon, Plug, HardDrive, Check,
-  Calendar, Mail, Layers, Bell,
+  Calendar, Mail, Layers, Bell, Clock,
 } from 'lucide-react';
 
 const api = window.api;
@@ -572,6 +572,23 @@ function MessageBubble({ message, activePersona }) {
           <Bell size={14} className="text-amber-400 shrink-0" />
           <p className="text-sm text-amber-200">{message.content}</p>
           <span className="text-[10px] text-amber-500/60 shrink-0 ml-1">
+            {new Date(message.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (message.role === 'scheduler') {
+    return (
+      <div className="flex justify-center animate-slide-up my-1">
+        <div className="flex items-start gap-2.5 bg-indigo-500/10 border border-indigo-500/25 rounded-xl px-4 py-2.5 max-w-[80%]">
+          <Clock size={14} className="text-indigo-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-[10px] text-indigo-400 font-medium mb-0.5">Scheduled Task Complete</p>
+            <p className="text-sm text-indigo-200 whitespace-pre-wrap">{message.content}</p>
+          </div>
+          <span className="text-[10px] text-indigo-500/60 shrink-0 ml-1">
             {new Date(message.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
           </span>
         </div>

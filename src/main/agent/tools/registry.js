@@ -9,6 +9,15 @@ const { CONNECTOR_TOOLS } = require('./connectors');
 const { BROWSER_TABS_TOOLS } = require('./browser-tabs');
 const { ContentTools } = require('./content-tools');
 const { ReminderTools } = require('./reminder-tools');
+const { DATABASE_TOOLS } = require('./database-tools');
+const { GITHUB_TOOLS } = require('./github-tools');
+const { PRODUCTIVITY_TOOLS } = require('./productivity-tools');
+const { MESSAGING_TOOLS } = require('./messaging-tools');
+const { WORKFLOW_TOOLS } = require('./workflow-tools');
+const { SCHEDULER_TOOLS } = require('./scheduler-tools');
+const { ORCHESTRATION_TOOLS } = require('./orchestration-tools');
+const { PresentationTools } = require('./presentation-tools');
+const { ExcelTools } = require('./excel-tools');
 const { TOOL_SCHEMAS } = require('./tool-schemas');
 
 class ToolRegistry {
@@ -56,7 +65,7 @@ class ToolRegistry {
     console.log(`[ToolRegistry] Registered ${mcpCount} MCP tools (${this.tools.size} total)`);
   }
 
-  async registerBuiltinTools() {
+  async registerBuiltinTools({ spawner } = {}) {
     for (const tool of FilesystemTools)    this.register(tool);
     for (const tool of AppControlTools)    this.register(tool);
     for (const tool of BrowserTools)       this.register(tool);
@@ -68,8 +77,40 @@ class ToolRegistry {
     for (const tool of BROWSER_TABS_TOOLS)  this.register(tool);
     for (const tool of ContentTools)        this.register(tool);
     for (const tool of ReminderTools)       this.register(tool);
+    for (const tool of DATABASE_TOOLS)      this.register(tool);
+    for (const tool of GITHUB_TOOLS)        this.register(tool);
+    for (const tool of PRODUCTIVITY_TOOLS)  this.register(tool);
+    for (const tool of MESSAGING_TOOLS)     this.register(tool);
+    for (const tool of WORKFLOW_TOOLS)      this.register(tool);
+    for (const tool of SCHEDULER_TOOLS)     this.register(tool);
+    for (const tool of ORCHESTRATION_TOOLS) this.register(tool);
+    for (const tool of PresentationTools)   this.register(tool);
+    for (const tool of ExcelTools)          this.register(tool);
+
+    // Wire spawner into orchestration tools if provided
+    if (spawner && ORCHESTRATION_TOOLS._setSpawner) {
+      ORCHESTRATION_TOOLS._setSpawner(spawner);
+    }
 
     console.log(`[ToolRegistry] Registered ${this.tools.size} tools`);
+  }
+
+  /**
+   * Load and register custom connector tools from {userData}/connectors/ directory.
+   */
+  loadCustomConnectors(userDataPath) {
+    try {
+      const { loadConnectors } = require('../connector-sdk');
+      const customTools = loadConnectors(userDataPath);
+      for (const tool of customTools) {
+        this.register(tool);
+      }
+      if (customTools.length > 0) {
+        console.log(`[ToolRegistry] Loaded ${customTools.length} custom connector tools`);
+      }
+    } catch (err) {
+      console.warn('[ToolRegistry] Custom connector load failed:', err.message);
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -84,7 +125,15 @@ class ToolRegistry {
    * @returns {Array} Provider-specific tool definition array
    */
   getToolDefinitions(provider = 'anthropic') {
-    const tools = Array.from(this.tools.values());
+    let tools = Array.from(this.tools.values());
+
+    // OpenAI-compatible providers have a 128-tool limit
+    const OPENAI_TOOL_LIMIT = 128;
+    const needsTrim = ['openai', 'deepseek', 'xai', 'mistral', 'groq', 'together'].includes(provider)
+      || (!['anthropic', 'minimax', 'google', 'ollama'].includes(provider));
+    if (needsTrim && tools.length > OPENAI_TOOL_LIMIT) {
+      tools = this._trimToolsToLimit(tools, OPENAI_TOOL_LIMIT);
+    }
 
     switch (provider) {
       case 'anthropic':
@@ -96,7 +145,6 @@ class ToolRegistry {
       case 'mistral':
       case 'groq':
       case 'together':
-      case 'perplexity':
         return this._toOpenAITools(tools);
       case 'ollama':
         return this._toOllamaTools(tools);
@@ -106,6 +154,53 @@ class ToolRegistry {
         // Default to OpenAI format for unknown OpenAI-compatible providers
         return this._toOpenAITools(tools);
     }
+  }
+
+  /**
+   * Trim tools to a max count by dropping lower-priority tools.
+   * Priority: core tools first, then enterprise/niche tools dropped from the end.
+   */
+  _trimToolsToLimit(tools, limit) {
+    // Low-priority tools that can be dropped when hitting provider limits.
+    // Order matters: first items get dropped first.
+    const LOW_PRIORITY = new Set([
+      // Enterprise tools — most users won't have these configured
+      'jira_list_issues', 'jira_create_issue', 'jira_update_issue', 'jira_search', 'jira_get_issue',
+      'linear_list_issues', 'linear_create_issue', 'linear_search',
+      'notion_search', 'notion_read_page', 'notion_create_page', 'notion_update_page',
+      'slack_send', 'slack_send_blocks', 'slack_search',
+      'teams_send', 'teams_send_card',
+      'github_list_repos', 'github_list_issues', 'github_list_prs',
+      'github_create_issue', 'github_create_pr', 'github_get_file', 'github_search_code', 'github_comment',
+      'db_list_connections', 'db_add_connection', 'db_test_connection', 'db_schema', 'db_describe', 'db_query',
+      // Legacy/specialized
+      'excel_vba_run', 'excel_vba_list',
+      'pptx_generate_content', 'pptx_build',
+      // Workflow/orchestration tools
+      'workflow_create', 'workflow_run', 'workflow_list', 'workflow_get',
+      'schedule_create', 'schedule_list', 'schedule_cancel', 'schedule_get',
+      'work_create_task', 'work_list_tasks', 'work_update_task', 'work_run_task',
+      // Excel Master — less common tools
+      'excel_list_templates', 'excel_list_themes',
+      'excel_row_col_op', 'excel_sheet_op',
+    ]);
+
+    const core = [];
+    const low = [];
+    for (const t of tools) {
+      if (LOW_PRIORITY.has(t.name)) {
+        low.push(t);
+      } else {
+        core.push(t);
+      }
+    }
+
+    // Keep all core tools, then fill remaining slots with low-priority
+    const remaining = limit - core.length;
+    if (remaining > 0) {
+      return [...core, ...low.slice(0, remaining)];
+    }
+    return core.slice(0, limit);
   }
 
   // ---- Anthropic format ----
