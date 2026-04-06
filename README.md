@@ -35,27 +35,25 @@ Built with **Electron + React + Node.js** — everything runs locally on your ma
 │  └──────────┬────────────────────────┬─────────────────┘ │
 │  ┌──────────┴──────────┐  ┌──────────┴────────────────┐ │
 │  │   Tool Registry      │  │    Memory System          │ │
-│  │  • Office (28)       │  │  • Short-term (100 msg)   │ │
-│  │  • Excel Master (28) │  │  • Long-term (SQLite FTS) │ │
-│  │  • Presentation (15) │  │  • Full-text search       │ │
-│  │  • Filesystem (13)   │  │  • JSON fallback          │ │
-│  │  • Productivity (12) │  ├──────────────────────────┤ │
-│  │  • Browser Tabs (9)  │  │  Permission Manager       │ │
-│  │  • GitHub (8)        │  │  safe / sensitive / danger │ │
-│  │  • Database (6)      │  │                          │ │
-│  │  • Workflow (6)      │  │                          │ │
-│  │  • Scheduler (6)     │  │                          │ │
-│  │  • App Control (6)   │  │                          │ │
-│  │  • System (6)        │  │                          │ │
-│  │  • Browser (5)       │  │                          │ │
-│  │  • Messaging (5)     │  │                          │ │
-│  │  • Connectors (5)    │  │                          │ │
-│  │  • Search/Fetch (4)  │  │                          │ │
-│  │  • Orchestration (4) │  │                          │ │
-│  │  • LLM (4)           │  │                          │ │
-│  │  • Reminders (3)     │  │                          │ │
-│  │  • Content (1)       │  │                          │ │
-│  │  Total: 174 tools    │  └──────────────────────────┘ │
+│  │  • Excel Master (22)  │  │  • Short-term (100 msg)   │ │
+│  │  • Office (20)        │  │  • Long-term (SQLite FTS) │ │
+│  │  • Social Media (15)  │  │  • Full-text search       │ │
+│  │  • Presentation (15)  │  │  • JSON fallback          │ │
+│  │  • Filesystem (13)    │  ├──────────────────────────┤ │
+│  │  • Browser+Tabs (14)  │  │  Permission Manager       │ │
+│  │  • Productivity (12)  │  │  safe / sensitive / danger │ │
+│  │  • Workflow+Sched (12)│  ├──────────────────────────┤ │
+│  │  • System+Apps (12)   │  │  Skill System (28 files)  │ │
+│  │  • GitHub (8)         │  │  Read → Execute → Learn   │ │
+│  │  • Database (6)       │  │  Versioned backups        │ │
+│  │  • Messaging (5)      │  │  Instant rollback         │ │
+│  │  • Connectors (5)     │  │                          │ │
+│  │  • Web/Search (5)     │  │                          │ │
+│  │  • Orchestration (4)  │  │                          │ │
+│  │  • Skill Mgmt (4)    │  │                          │ │
+│  │  • LLM (4)            │  │                          │ │
+│  │  • Reminders (3)      │  │                          │ │
+│  │  Total: 179 tools     │  └──────────────────────────┘ │
 │  └──────────────────────┘                                │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -76,7 +74,7 @@ The agent uses the same architecture as Claude Code, OpenAI Assistants, and othe
 
 ### Auto-Persona Selection
 
-The agent automatically selects the best persona for each request:
+The agent automatically selects the best persona using pure regex scoring (no LLM call — zero latency):
 
 | Persona | Auto-selected when... | Style |
 |---------|----------------------|-------|
@@ -86,7 +84,7 @@ The agent automatically selects the best persona for each request:
 | **Planner** | "plan", "design", "architect", "strategy", "step-by-step" | Strategic, methodical |
 | **Custom** | Manual selection | Configurable |
 
-Uses fast keyword heuristics with weighted scoring (strong signals × 3 + weak signals), falling back to LLM classification for ambiguous requests.
+Uses fast keyword heuristics with weighted scoring (strong signals x 3 + weak signals). No LLM fallback — regex always decides.
 
 ### Multi-Provider LLM Support
 
@@ -104,7 +102,7 @@ Choose from **11 providers** and **80+ models** directly in the Settings UI:
 | **Groq** | Llama 3.3 70B, Llama 3.1 8B, Llama 3.2 90B Vision, Mixtral 8x7B, Gemma 2 9B, Qwen QwQ 32B, DeepSeek R1 70B | Yes |
 | **Together AI** | Llama 3.3 70B Turbo, Llama 3.1 405B Turbo, Qwen 2.5 72B Turbo, Mixtral 8x22B, DeepSeek R1/V3 | Yes |
 | **Perplexity** | Sonar Pro, Sonar, Sonar Reasoning Pro, Sonar Reasoning, Sonar Deep Research | Yes |
-| **MiniMax** | MiniMax-M2.5, MiniMax-M2, MiniMax-Text-01 (1M context, exceptional tool use) | Yes |
+| **MiniMax** | MiniMax-M2.7 Fast, MiniMax-M2.5, MiniMax-M2 (1M context, Anthropic-compatible) | Yes |
 
 **LLM module features:**
 - **Two calling modes**: `callLLM()` for simple text-in/text-out, `callWithTools()` for native agentic tool calling
@@ -121,33 +119,31 @@ Choose from **11 providers** and **80+ models** directly in the Settings UI:
 - **Encrypted API key storage** — AES-256-GCM encryption with machine-specific key derivation (PBKDF2, 100K iterations)
 - Keys are stored in `~/.config/open-desktop/.keystore.enc`, never in plaintext
 
-### Unified Tool System (174 tools)
+### Unified Tool System (179 tools)
 
 All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native function calling with every LLM provider.
 
-| Category | Tools | Count | Permission |
-|----------|-------|:-----:|------------|
-| **Filesystem** | `fs_read`, `fs_write`, `fs_edit`, `fs_list`, `fs_search`, `fs_delete`, `fs_move`, `fs_mkdir`, `fs_tree`, `fs_info`, `fs_organize`, `fs_undo`, `fs_diff` | 13 | Safe/Sensitive/Dangerous |
-| **Office Documents** | `office_read_pdf`, `office_pdf_search`, `office_pdf_ask`, `office_search_pdfs`, `office_read_docx`, `office_search_docx`, `office_search_docxs`, `office_write_docx`, `office_analyze_xlsx`, `office_read_xlsx`, `office_write_xlsx`, `office_chart_xlsx`, `office_dashboard_xlsx`, `office_python_dashboard`, `office_validate_dashboard`, `office_csv_to_xlsx`, `excel_vba_run`, `excel_vba_list`, `office_read_pptx`, `office_write_pptx`, `office_read_csv`, `office_write_csv`, + 6 more | 28 | Safe/Sensitive |
-| **Google Connectors** | `connector_drive_search`, `connector_drive_read`, `connector_gmail_search`, `connector_gmail_read`, `connector_calendar_events` | 5 | Safe |
-| **App Control** | `app_open`, `app_find`, `app_list`, `app_focus`, `app_quit`, `app_screenshot` | 6 | Safe/Sensitive |
-| **Browser** | `browser_navigate`, `browser_click`, `browser_type`, `browser_key`, `browser_submit_form` | 5 | Sensitive/Dangerous |
-| **Browser Tabs** | `tabs_list`, `tabs_navigate`, `tabs_close`, `tabs_read`, `tabs_focus`, `tabs_find_duplicates`, `tabs_find_forms`, `tabs_fill_form`, `tabs_run_js` | 9 | Safe/Sensitive/Dangerous |
-| **Search/Fetch** | `web_search`, `web_fetch`, `web_fetch_json`, `web_download` | 4 | Safe/Sensitive |
-| **Content Tools** | `content_summarize` | 1 | Safe |
-| **System** | `system_exec`, `system_info`, `system_processes`, `system_clipboard_read`, `system_clipboard_write`, `system_notify` | 6 | Safe/Sensitive |
-| **LLM** | `llm_query`, `llm_summarize`, `llm_extract`, `llm_code` | 4 | Safe |
-| **Reminders** | `reminder_set`, `reminder_list`, `reminder_cancel` | 3 | Safe |
-| **Presentation** | `ppt_create`, `ppt_add_slide`, `ppt_build_from_outline`, `ppt_add_chart`, `ppt_add_image`, `ppt_apply_theme`, + 9 more | 15 | Safe/Sensitive |
-| **Productivity** | `todo_create`, `todo_list`, `todo_update`, `todo_delete`, `note_create`, `note_search`, `calendar_create_event`, + 5 more | 12 | Safe/Sensitive |
-| **GitHub** | `github_create_repo`, `github_create_issue`, `github_create_pr`, `github_list_repos`, `github_search_code`, + 3 more | 8 | Sensitive |
-| **Database** | `db_query`, `db_execute`, `db_schema`, `db_export`, `db_import`, `db_backup` | 6 | Sensitive/Dangerous |
-| **Workflow** | `workflow_create`, `workflow_execute`, `workflow_list`, `workflow_status`, `workflow_cancel`, `workflow_delete` | 6 | Safe/Sensitive |
-| **Scheduler** | `schedule_task`, `schedule_list`, `schedule_cancel`, `schedule_pause`, `schedule_resume`, `schedule_update` | 6 | Safe/Sensitive |
-| **Messaging** | `slack_send`, `slack_list_channels`, `discord_send`, `email_send`, `sms_send` | 5 | Sensitive |
-| **Orchestration** | `agent_spawn`, `agent_communicate`, `agent_list`, `agent_terminate` | 4 | Sensitive |
-| **Excel Master** | `excel_auto_build`, `excel_add_chart`, `excel_add_kpi_row`, `excel_add_table`, `excel_modify_object`, `excel_write_cells`, `excel_format_range`, `excel_add_feature`, `excel_query`, `excel_save`, `excel_undo`, `excel_redo`, + 8 more | 28 | Safe/Sensitive |
-| **Total** | | **174** | |
+| Category | Count | Highlights |
+|----------|:-----:|------------|
+| **Filesystem** | 13 | `fs_read`, `fs_write`, `fs_edit`, `fs_list`, `fs_search`, `fs_organize`, `fs_undo`, `fs_diff` |
+| **Office Documents** | 20 | PDF (read/search/ask/batch), DOCX (read/write/search), Excel (read/write/chart/dashboard), CSV, PPTX |
+| **Excel Master** | 22 | Session-based dashboard builder: `excel_auto_build`, charts, KPIs, tables, format, undo/redo |
+| **Presentations** | 15 | `pptx_ai_build` (AI-driven), `pptx_edit_*` (iterative editing), 14 themes, 32 slide types |
+| **Social Media** | 15 | TikTok/Instagram/Twitter: read feed, like, follow, comment, AI content generation, activity log |
+| **Browser + Tabs** | 14 | Navigate, read pages, fill forms, run JS, manage tabs across Chrome/Safari/Brave/Edge/Arc |
+| **System + Apps** | 12 | Shell exec, processes, clipboard, notifications, app open/find/focus/quit/screenshot |
+| **Productivity** | 12 | Jira (5), Linear (3), Notion (4) |
+| **GitHub** | 8 | Repos, issues, PRs, code search, file reading, comments |
+| **Workflows + Scheduler** | 12 | Save/run/export workflows, cron-based scheduling |
+| **Database** | 6 | SQLite, PostgreSQL, MySQL — schema, describe, query |
+| **Messaging** | 5 | Slack (send/blocks/search), Teams (send/cards) |
+| **Google Connectors** | 5 | Drive, Gmail, Calendar (OAuth2) |
+| **Web/Search** | 5 | `web_search`, `web_fetch`, `web_fetch_json`, `web_download`, `content_summarize` |
+| **Orchestration** | 4 | `agent_spawn`, `agent_fanout`, `agent_map`, `agent_reduce` |
+| **LLM** | 4 | `llm_query`, `llm_summarize`, `llm_extract`, `llm_code` |
+| **Skill Management** | 4 | `skill_read`, `skill_update` (with backup), `skill_rollback`, `skill_history` |
+| **Reminders** | 3 | `reminder_set`, `reminder_list`, `reminder_cancel` (native OS notifications) |
+| **Total** | **179** | |
 
 #### Key tool capabilities
 
@@ -180,6 +176,45 @@ All tools have full **JSON Schema definitions** (`tool-schemas.js`) for native f
 - **`office_read_pptx`** — PowerPoint slide extraction (titles, body text, speaker notes) via JSZip XML parsing
 - **`office_write_pptx`** — PowerPoint creation via pptxgenjs with 4 built-in themes (professional/dark/minimal/vibrant), 5 slide layouts (title/content/two-column/table/section), template color extraction, and OOXML post-processing fix
 - **`office_read_csv`** / **`office_write_csv`** — CSV/TSV with auto-delimiter detection, pagination, and JSON output
+
+### Social Media Controller (15 tools)
+
+Browser-based automation for TikTok, Instagram, and Twitter/X using active sessions:
+
+- **Read**: Feed, post details + comments, user profiles, notifications
+- **Engage**: Like, follow, comment, reply — with user approval
+- **AI Content Generation**: Context-aware captions, comments, hashtags, post ideas, bios, product listings
+- **Business Context**: Set your brand identity once (`social_set_context`), all generated content matches your tone/audience
+- **Activity Logging**: Every action logged with timestamps, filterable by platform/action
+
+Works via AppleScript + JavaScript injection into the user's existing Chrome/Safari browser sessions. No API keys or third-party services required.
+
+### Skill Learning System (28 skill files, 7,725 lines)
+
+The agent has procedural memory — verified step-by-step instructions for every tool category:
+
+1. **Skill-first workflow**: Agent reads the relevant skill file BEFORE attempting any task (no trial-and-error)
+2. **Self-updating**: After discovering a new approach, the agent updates the skill file for next time
+3. **Versioned backups**: Every skill update automatically backs up the previous version
+4. **Instant rollback**: `skill_rollback` restores the last working version if an update breaks something
+
+| Tool | Purpose |
+|------|---------|
+| `skill_read` | Read a skill file (or list all 28) |
+| `skill_update` | Update with new procedure — backs up first, requires approval |
+| `skill_rollback` | Restore previous version |
+| `skill_history` | View all backup versions |
+
+### Latency Optimizations
+
+First response time reduced from **8-20 seconds to under 2 seconds** for simple messages:
+
+- **Fast path**: Greetings and short questions bypass tools, context, persona — minimal prompt directly to LLM
+- **No LLM calls in pre-processing**: Persona selection is pure regex, plan generation removed
+- **Non-blocking context**: Uses cached OS context, refreshes in background
+- **Cached tool definitions**: Per-provider cache with version-based invalidation
+- **80% smaller system prompt**: ~1,200 tokens (was ~5,000) — details moved to on-demand skill files
+- **Anthropic prompt caching**: System prompt + tools marked with `cache_control` for KV cache reuse
 
 ### Memory System
 - **Short-term**: Rolling 100-message window for current session context
@@ -285,52 +320,82 @@ npm start
 OpenDesktop/
 ├── package.json
 ├── vite.config.js
-├── tailwind.config.js
-├── postcss.config.js
+├── electron-builder.json         # DMG/ZIP packaging config
+├── ARCHITECTURE.md               # Deep-dive technical reference
 ├── src/
-│   ├── main/                    # Electron main process
-│   │   ├── main.js              # App entry, window, IPC setup
-│   │   ├── preload.js           # Context bridge API (streaming events)
-│   │   ├── reminder-service.js  # Self-contained reminder scheduler (JSON persistence, 30s polling)
+│   ├── main/                     # Electron main process
+│   │   ├── main.js               # App entry, window, IPC setup
+│   │   ├── preload.js            # Context bridge API (streaming events)
+│   │   ├── reminder-service.js   # Reminder scheduler (JSON, 30s polling, native notifications)
+│   │   ├── connectors/
+│   │   │   └── google.js         # OAuth2 for Google Drive/Gmail/Calendar
 │   │   └── agent/
-│   │       ├── core.js          # AgentCore — orchestrator, auto-persona, system prompt builder
-│   │       ├── loop.js          # AgentLoop — ReAct loop with native tool calling
-│   │       ├── planner.js       # Legacy planner (fallback for simple tasks)
-│   │       ├── personas.js      # Persona definitions + manager
-│   │       ├── llm.js           # Multi-provider LLM client (callLLM + callWithTools)
-│   │       ├── keystore.js      # AES-256-GCM encrypted API key storage
-│   │       ├── memory.js        # SQLite FTS5 memory with JSON fallback
-│   │       ├── permissions.js   # Permission classification + audit
-│   │       ├── context.js       # OS context awareness
+│   │       ├── core.js           # AgentCore — orchestrator, skill-first workflow, fast path
+│   │       ├── loop.js           # AgentLoop — ReAct loop, tool def caching, Anthropic prompt cache
+│   │       ├── personas.js       # Persona definitions + manager
+│   │       ├── llm.js            # Multi-provider LLM (11 providers, 80+ models, prompt caching)
+│   │       ├── keystore.js       # AES-256-GCM encrypted API key storage
+│   │       ├── memory.js         # SQLite FTS5 memory with JSON fallback
+│   │       ├── permissions.js    # Permission classification + audit
+│   │       ├── context.js        # OS context (parallel AppleScript, 30s cache)
+│   │       ├── mcp/
+│   │       │   └── manager.js    # MCP server connections (stdio/SSE)
+│   │       ├── skills/           # 28 procedural skill files (7,725 lines)
+│   │       │   ├── SKILLS.md     # Master skill index
+│   │       │   ├── filesystem.md, system-apps.md, browser-automation.md
+│   │       │   ├── web-search.md, llm-tools.md, google-connectors.md
+│   │       │   ├── office-pdf.md, office-docx.md, office-excel.md
+│   │       │   ├── excel-dashboard.md, dashboard-review.md, excel-builder.md
+│   │       │   ├── presentation-builder.md, summarize-content.md
+│   │       │   ├── social-media.md, social-media-instagram.md
+│   │       │   ├── social-media-tiktok.md, social-media-twitter.md
+│   │       │   ├── github.md, database.md, productivity.md
+│   │       │   ├── messaging.md, orchestration.md, reminders.md
+│   │       │   ├── workflows-scheduler.md, skill-management.md
+│   │       │   ├── tool-directory.md
+│   │       │   └── .history/     # Versioned skill backups (auto-created)
 │   │       └── tools/
-│   │           ├── registry.js      # Tool registration + provider-specific schema generation
-│   │           ├── tool-schemas.js  # JSON Schema definitions for all 75 tools
-│   │           ├── filesystem.js    # 13 file ops (read, write, move, organize, undo, diff, etc.)
-│   │           ├── office.js        # 21 office document ops (PDF, DOCX, XLSX, PPTX, CSV, Dashboards, VBA)
-│   │           ├── connectors.js    # 5 Google Workspace integration ops (Drive, Gmail, Calendar)
-│   │           ├── app-control.js   # 6 app ops (open with fuzzy match, find, list, etc.)
-│   │           ├── browser.js       # 5 browser/UI automation ops
-│   │           ├── browser-tabs.js  # 9 browser tab management ops
-│   │           ├── search-fetch.js  # 4 web ops
-│   │           ├── content-tools.js # 1 content summarization op (audio/video/web)
-│   │           ├── reminder-tools.js # 3 reminder ops (set, list, cancel)
-│   │           ├── system.js        # 6 system ops
-│   │           └── llm-tools.js     # 4 LLM ops
-│   └── renderer/                # React UI
+│   │           ├── registry.js           # Tool registration + provider schema generation
+│   │           ├── tool-schemas.js       # JSON Schema for all 179 tools
+│   │           ├── filesystem.js         # 13 filesystem tools
+│   │           ├── office.js             # 20 office document tools
+│   │           ├── excel-tools.js        # 22 Excel Master session tools
+│   │           ├── presentation-tools.js # 15 presentation tools
+│   │           ├── social-media-tools.js # 15 social media controller tools
+│   │           ├── skill-tools.js        # 4 skill management tools
+│   │           ├── browser-tabs.js       # 9 browser tab tools
+│   │           ├── browser.js            # 5 browser automation tools
+│   │           ├── github-tools.js       # 8 GitHub tools
+│   │           ├── database-tools.js     # 6 database tools
+│   │           ├── productivity-tools.js # 12 Jira/Linear/Notion tools
+│   │           ├── messaging-tools.js    # 5 Slack/Teams tools
+│   │           ├── workflow-tools.js     # 6 workflow tools
+│   │           ├── scheduler-tools.js    # 6 scheduler tools
+│   │           ├── orchestration-tools.js # 4 parallel execution tools
+│   │           ├── connectors.js         # 5 Google connector tools
+│   │           ├── app-control.js        # 6 application tools
+│   │           ├── system.js             # 6 system tools
+│   │           ├── search-fetch.js       # 4 web tools
+│   │           ├── content-tools.js      # 1 content summarization tool
+│   │           ├── reminder-tools.js     # 3 reminder tools
+│   │           └── llm-tools.js          # 4 LLM tools
+│   └── renderer/                 # React UI
 │       ├── index.html
-│       ├── index.css
+│       ├── index.css             # Theming (dark/light/warm via CSS custom properties)
 │       ├── main.jsx
-│       ├── App.jsx              # Main app — streaming event handling, session management
+│       ├── App.jsx               # Streaming events, session management, file attachments
 │       └── components/
-│           ├── TitleBar.jsx
-│           ├── Sidebar.jsx      # Auto/Planner/Executor/Researcher personas, tool list
-│           ├── ChatPanel.jsx    # Streaming messages, live tool calls, tool history
-│           ├── ContextPanel.jsx
-│           ├── ApprovalDialog.jsx
-│           └── SettingsModal.jsx
+│           ├── Sidebar.jsx       # Personas, tools, MCP servers
+│           ├── ChatPanel.jsx     # Streaming messages, tool calls, inline model picker
+│           ├── SettingsModal.jsx  # LLM, Agent, MCP, Appearance tabs
+│           └── ...
 ├── assets/
-│   └── icon.png
-└── .gitignore
+│   ├── icon.png / icon.icns      # App icons
+│   ├── ppt-master/               # Vendored presentation engine
+│   └── excel-master/             # Vendored Excel dashboard engine
+└── scripts/
+    ├── launch-chrome-debug.sh    # Chrome with CDP on port 9222
+    └── launch-firefox-debug.sh   # Firefox with BiDi debugging
 ```
 
 ## Security Model

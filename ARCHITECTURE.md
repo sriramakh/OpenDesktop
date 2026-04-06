@@ -13,17 +13,19 @@
 5. [Agent Loop — ReAct Execution Engine](#5-agent-loop--react-execution-engine)
 6. [LLM Module — Multi-Provider Client](#6-llm-module--multi-provider-client)
 7. [Tool System](#7-tool-system)
-8. [Memory System](#8-memory-system)
-9. [Permission System](#9-permission-system)
-10. [Persona System](#10-persona-system)
-11. [Context Awareness](#11-context-awareness)
-12. [KeyStore — Encrypted API Key Storage](#12-keystore--encrypted-api-key-storage)
-13. [Renderer — React UI](#13-renderer--react-ui)
-14. [IPC Event Protocol](#14-ipc-event-protocol)
-15. [Data Flows](#15-data-flows)
-16. [Security Model](#16-security-model)
-17. [File-by-File Reference](#17-file-by-file-reference)
-18. [Dependencies](#18-dependencies)
+8. [Skill Learning System](#8-skill-learning-system)
+9. [Social Media Controller](#9-social-media-controller)
+10. [Memory System](#10-memory-system)
+11. [Permission System](#11-permission-system)
+12. [Persona System](#12-persona-system)
+13. [Context Awareness](#13-context-awareness)
+14. [KeyStore — Encrypted API Key Storage](#14-keystore--encrypted-api-key-storage)
+15. [Renderer — React UI](#15-renderer--react-ui)
+16. [IPC Event Protocol](#16-ipc-event-protocol)
+17. [Data Flows](#17-data-flows)
+18. [Security Model](#18-security-model)
+19. [File-by-File Reference](#19-file-by-file-reference)
+20. [Dependencies](#20-dependencies)
 
 ---
 
@@ -57,7 +59,7 @@ OpenDesktop is a **local-first autonomous AI agent** that runs natively on macOS
 │  │              │    └── KeyStore (AES-256-GCM)                │  │
 │  │              └── PermissionManager (safe/sensitive/danger)  │  │
 │  │                                                            │  │
-│  │  ┌─── Tool Registry (174 tools) ───────────────────────┐  │  │
+│  │  ┌─── Tool Registry (179 tools) ───────────────────────┐  │  │
 │  │  │ Office(28)     │ ExcelMaster(28) │ Presentation(15)│  │  │
 │  │  │ Filesystem(13) │ Productivity(12)│ Browser(5+9)    │  │  │
 │  │  │ GitHub(8)      │ Database(6)     │ Workflow(6)     │  │  │
@@ -114,7 +116,7 @@ app.whenReady()
       → memory.initialize()                // Create/open SQLite DB
       → keyStore.initialize()              // Decrypt .keystore.enc
       → reminderService.init(userDataPath, emitFn) // JSON-backed reminder scheduler
-      → toolRegistry.registerBuiltinTools() // Load all 174 tools
+      → toolRegistry.registerBuiltinTools() // Load all 179 tools
   → createWindow()                          // BrowserWindow with vibrancy
   → setupIPC()                              // Register all IPC handlers
 ```
@@ -158,45 +160,56 @@ app.whenReady()
 
 ## 4. Agent Core — Orchestrator
 
-**File:** `src/main/agent/core.js` (378 lines)
+**File:** `src/main/agent/core.js`
 
 AgentCore is the central orchestrator. It does **not** execute tools or call LLMs directly — it delegates to AgentLoop.
 
 ### Responsibilities
 
-1. **Session management** — maintains `sessionMessages[]` across multiple user messages within a session
-2. **Auto-persona selection** — classifies each request into executor/researcher/planner using heuristic scoring + LLM fallback
-3. **System prompt construction** — injects OS context, persona instructions, tool guidelines, memory, and environment info
-4. **AgentLoop invocation** — passes conversation + system prompt to the ReAct loop
-5. **Memory persistence** — stores task summaries in long-term memory after completion
-6. **Approval routing** — bridges approval requests from AgentLoop to the renderer
-7. **Cancellation** — propagates cancel signals to the loop
+1. **Fast path** — simple messages (greetings, short questions) bypass all pre-processing and go straight to the LLM with a minimal prompt and zero tools (<2s response)
+2. **Session management** — maintains `sessionMessages[]` across multiple user messages
+3. **Auto-persona selection** — pure regex scoring, no LLM call (zero latency)
+4. **Skill-first system prompt** — compact prompt pointing to on-demand skill files
+5. **AgentLoop invocation** — passes conversation + system prompt to the ReAct loop
+6. **Memory persistence** — stores task summaries in long-term memory
+7. **Approval routing** — bridges approval requests from AgentLoop to the renderer
 
-### Auto-Persona Selection Algorithm
+### Fast Path (Simple Messages)
 
 ```
-1. Tokenize user message (lowercase)
-2. Score against regex patterns for each persona:
-   - executor:   strong signals (move, delete, install, run...) × 3
-                  weak signals (create, make, write, open...) × 1
-   - researcher: strong signals (search, explain, compare...) × 3
-                  weak signals (what, why, how, when...) × 1
-   - planner:    strong signals (plan, design, architect...) × 3
-                  weak signals (should, could, option...) × 1
-3. If max score ≥ 3 → use that persona
-4. If ambiguous → call LLM for classification (one-word response)
-5. If max score > 0 → use highest scorer
-6. Default fallback → executor
+if complexity === 'simple' && no attachments:
+    → 1-sentence system prompt + user message
+    → _loop.run with _noTools=true (zero tool definitions)
+    → LLM responds in ~1-1.5s
+    → Skip persona, context, routing, memory search entirely
 ```
 
-### System Prompt Structure
+### Auto-Persona Selection (Pure Regex — No LLM Call)
+
+```
+1. Score against regex patterns:
+   - executor:   strong signals (move, delete, install, run...) × 3 + weak × 1
+   - researcher: strong signals (search, explain, compare...) × 3 + weak × 1
+   - planner:    strong signals (plan, design, architect...) × 3 + weak × 1
+2. If any score > 0 → use highest scorer
+3. Simple messages → researcher, everything else → executor
+```
+
+### System Prompt Structure (~1,200 tokens)
 
 ```
 [Persona system prompt]
+[Mode instruction (fast/comprehensive)]
 
-You are OpenDesktop, an autonomous AI agent running natively on {user}'s {platform} computer.
+You are OpenDesktop, an autonomous AI agent...
 
-## Your capabilities
+## Skill-first workflow — CRITICAL
+- skill_read() to find and follow existing procedures
+- skill_update() after verified discoveries (backs up automatically)
+- skill_rollback() if an update breaks something
+
+## Quick skill lookup (8 common categories)
+## Key routing rules (9 rules)
 [Full tool listing by category]
 
 ## Critical operating principles
@@ -607,7 +620,110 @@ Images, Videos, Audio, Documents, Spreadsheets, Presentations, Code, Archives, A
 
 ---
 
-## 8. Memory System
+## 8. Skill Learning System
+
+**Files:** `src/main/agent/tools/skill-tools.js`, `src/main/agent/skills/*.md`
+
+The agent has **procedural memory** — 28 skill files (7,725 lines) with verified step-by-step procedures for all 179 tools.
+
+### Architecture
+
+```
+skills/
+  SKILLS.md                    # Master index — agent reads this first
+  social-media-instagram.md    # Verified DOM selectors, exact tool calls
+  filesystem.md                # fs_* tool procedures and gotchas
+  office-pdf.md                # PDF decision tree, chunked reading
+  ...27 total skill files
+  .history/                    # Automatic versioned backups
+    social-media-instagram.2026-04-06T00-00-01-005Z.md
+    ...
+```
+
+### Workflow
+
+```
+1. Agent receives task
+2. Reads SKILLS.md → finds matching skill
+3. Reads specific skill file → follows exact procedure
+4. If procedure fails or new approach discovered:
+   a. Verify the new approach works
+   b. Call skill_update (creates backup, appends new section)
+   c. Mark with [Learned: YYYY-MM-DD]
+5. If update breaks something → skill_rollback restores last backup
+```
+
+### Safety Rules
+
+- `skill_update` is **sensitive** — requires user approval
+- Every update creates a timestamped backup FIRST
+- **Test → Succeed → Update** — never update from failed attempts
+- Rollback also backs up the current version before restoring (double safety net)
+- Skills only editable inside the `skills/` directory (path restricted)
+
+### 4 Skill Management Tools
+
+| Tool | Permission | Purpose |
+|------|-----------|---------|
+| `skill_read` | safe | Read skill file or list all 28 skills |
+| `skill_update` | sensitive | Append/replace section with backup |
+| `skill_rollback` | sensitive | Restore previous backup version |
+| `skill_history` | safe | List all backup versions |
+
+---
+
+## 9. Social Media Controller
+
+**File:** `src/main/agent/tools/social-media-tools.js`
+
+Browser-based social media automation using active sessions via AppleScript + JavaScript injection.
+
+### Supported Platforms
+
+| Platform | Feed | Post | Profile | Like | Follow | Comment | Content Gen |
+|----------|:----:|:----:|:-------:|:----:|:------:|:-------:|:-----------:|
+| TikTok | Yes | Yes | Yes | Yes | Yes | Yes (DraftJS) | Yes |
+| Instagram | Yes | Yes | Yes (meta tag) | Yes | Yes | Yes (textarea) | Yes |
+| Twitter/X | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+
+### Architecture
+
+```
+User's Chrome (active session, logged in)
+    ↓ AppleScript: find/navigate tab
+    ↓ AppleScript: execute JavaScript in tab
+    ↓ JavaScript: DOM selectors → read content / click buttons / type text
+    ↓ Return JSON result → social media tool → agent
+```
+
+### Key Design Decisions
+
+1. **No API keys required** — uses the user's existing browser session
+2. **Platform-specific DOM selectors** — stored in skill files, updated via skill learning
+3. **DraftJS handling** (TikTok) — `document.execCommand('insertText')` for React compatibility
+4. **Meta tag parsing** (Instagram) — `<meta name="description">` for reliable profile stats
+5. **Active tab preference** — when multiple tabs match, prefers the focused tab
+
+### Business Context (AI Content Generation)
+
+```
+social_set_context → persists to {userData}/social-context.json
+    ↓
+social_generate_content → callLLM with context + platform rules
+    ↓
+Returns: captions, comments, replies, hashtags, post ideas, bios, product listings
+```
+
+### Activity Logging
+
+All actions logged to `{userData}/social-activity.json` with:
+- Timestamp, platform, action type, target URL, content text
+- Filterable by platform and action type
+- Last 1,000 entries retained
+
+---
+
+## 10. Memory System
 
 **File:** `src/main/agent/memory.js` (306 lines)
 
@@ -665,7 +781,7 @@ CREATE TRIGGER lt_ad AFTER DELETE ON long_term BEGIN ... END;
 
 ---
 
-## 9. Permission System
+## 11. Permission System
 
 **File:** `src/main/agent/permissions.js` (139 lines)
 
@@ -702,7 +818,7 @@ Every permission check is logged with tool name, sanitized params, level, and ti
 
 ---
 
-## 10. Persona System
+## 12. Persona System
 
 **File:** `src/main/agent/personas.js` (90 lines)
 
@@ -719,7 +835,7 @@ Each persona has: `name`, `label`, `icon`, `color`, `description`, `systemPrompt
 
 ---
 
-## 11. Context Awareness
+## 13. Context Awareness
 
 **File:** `src/main/agent/context.js` (99 lines)
 
@@ -736,7 +852,7 @@ This context is injected into the system prompt so the LLM knows what's currentl
 
 ---
 
-## 12. KeyStore — Encrypted API Key Storage
+## 14. KeyStore — Encrypted API Key Storage
 
 **File:** `src/main/agent/keystore.js` (156 lines)
 
@@ -780,7 +896,7 @@ Stored at: `{userData}/.keystore.enc`
 
 ---
 
-## 13. Renderer — React UI
+## 15. Renderer — React UI
 
 ### Component Tree
 
@@ -842,7 +958,7 @@ User types message → handleSend()
 
 ---
 
-## 14. IPC Event Protocol
+## 16. IPC Event Protocol
 
 ### Request-Response (invoke/handle)
 
@@ -878,7 +994,7 @@ Main Process                      Renderer
 
 ---
 
-## 15. Data Flows
+## 17. Data Flows
 
 ### User Message → Agent Response
 
@@ -931,7 +1047,7 @@ Main Process                      Renderer
 
 ---
 
-## 16. Security Model
+## 18. Security Model
 
 | Layer | Mechanism | Details |
 |-------|-----------|---------|
@@ -948,7 +1064,7 @@ Main Process                      Renderer
 
 ---
 
-## 17. File-by-File Reference
+## 19. File-by-File Reference
 
 ```
 OpenDesktop/
@@ -975,7 +1091,7 @@ OpenDesktop/
 │       │
 │       └── tools/                  # ═══ TOOL IMPLEMENTATIONS ═══
 │           ├── registry.js         # ToolRegistry: registration + provider-specific schemas
-│           ├── tool-schemas.js     # JSON Schema definitions for all 174 tools
+│           ├── tool-schemas.js     # JSON Schema definitions for all 179 tools
 │           ├── filesystem.js       # 13 tools: read, write, edit, list, search, move, organize, undo, diff...
 │           ├── office.js           # 28 tools: PDF (with OCR), DOCX, XLSX (ExcelJS), Dashboards, VBA, PPTX (pptxgenjs), CSV
 │           ├── excel-tools.js      # 28 tools: excel_auto_build, excel_add_chart, KPIs, tables, formatting, features, query...
@@ -1014,7 +1130,7 @@ OpenDesktop/
 
 ---
 
-## 18. Dependencies
+## 20. Dependencies
 
 ### Runtime Dependencies
 
