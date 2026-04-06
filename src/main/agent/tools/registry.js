@@ -18,6 +18,8 @@ const { SCHEDULER_TOOLS } = require('./scheduler-tools');
 const { ORCHESTRATION_TOOLS } = require('./orchestration-tools');
 const { PresentationTools } = require('./presentation-tools');
 const { ExcelTools } = require('./excel-tools');
+const { SOCIAL_MEDIA_TOOLS } = require('./social-media-tools');
+const { SKILL_TOOLS } = require('./skill-tools');
 const { TOOL_SCHEMAS } = require('./tool-schemas');
 
 class ToolRegistry {
@@ -61,6 +63,8 @@ class ToolRegistry {
     for (const tool of mcpManager.getRegistryTools()) {
       this.register(tool);
     }
+    // Invalidate cached tool definitions so the loop picks up the new tools
+    this._toolDefsVersion = (this._toolDefsVersion || 0) + 1;
     const mcpCount = Array.from(this.tools.keys()).filter((n) => n.startsWith('mcp_')).length;
     console.log(`[ToolRegistry] Registered ${mcpCount} MCP tools (${this.tools.size} total)`);
   }
@@ -86,6 +90,8 @@ class ToolRegistry {
     for (const tool of ORCHESTRATION_TOOLS) this.register(tool);
     for (const tool of PresentationTools)   this.register(tool);
     for (const tool of ExcelTools)          this.register(tool);
+    for (const tool of SOCIAL_MEDIA_TOOLS)  this.register(tool);
+    for (const tool of SKILL_TOOLS)         this.register(tool);
 
     // Wire spawner into orchestration tools if provided
     if (spawner && ORCHESTRATION_TOOLS._setSpawner) {

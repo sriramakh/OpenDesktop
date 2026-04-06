@@ -6,7 +6,7 @@ class ContextAwareness {
   constructor() {
     this.cache = null;
     this.cacheExpiry = 0;
-    this.cacheTTL = 5000; // 5 seconds
+    this.cacheTTL = 30000; // 30 seconds — context rarely changes mid-conversation
   }
 
   async getActiveContext() {
@@ -30,22 +30,38 @@ class ContextAwareness {
       timestamp: now,
     };
 
-    // Platform-specific active app detection
+    // Platform-specific context — run ALL commands in parallel to minimize latency
     try {
       if (process.platform === 'darwin') {
-        context.activeApp = await this.runCommand(
-          `osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true'`
-        );
-        context.activeWindow = await this.runCommand(
-          `osascript -e 'tell application "System Events" to get name of front window of first application process whose frontmost is true'`
-        ).catch(() => 'unknown');
+        const [activeApp, activeWindow, appList] = await Promise.all([
+          this.runCommand(
+            `osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true'`
+          ).catch(() => 'unknown'),
+          this.runCommand(
+            `osascript -e 'tell application "System Events" to get name of front window of first application process whose frontmost is true'`
+          ).catch(() => 'unknown'),
+          this.runCommand(
+            `osascript -e 'tell application "System Events" to get name of every application process whose background only is false'`
+          ).catch(() => ''),
+        ]);
+        context.activeApp = activeApp;
+        context.activeWindow = activeWindow;
+        context.runningApps = appList.split(',').map((a) => a.trim()).filter(Boolean);
       } else if (process.platform === 'linux') {
-        context.activeApp = await this.runCommand(
-          `xdotool getactivewindow getwindowpid 2>/dev/null | xargs -I{} ps -p {} -o comm= 2>/dev/null`
-        ).catch(() => 'unknown');
-        context.activeWindow = await this.runCommand(
-          `xdotool getactivewindow getwindowname 2>/dev/null`
-        ).catch(() => 'unknown');
+        const [activeApp, activeWindow, appList] = await Promise.all([
+          this.runCommand(
+            `xdotool getactivewindow getwindowpid 2>/dev/null | xargs -I{} ps -p {} -o comm= 2>/dev/null`
+          ).catch(() => 'unknown'),
+          this.runCommand(
+            `xdotool getactivewindow getwindowname 2>/dev/null`
+          ).catch(() => 'unknown'),
+          this.runCommand(
+            `wmctrl -l 2>/dev/null | awk '{$1=$2=$3=""; print $0}' | sed 's/^ *//'`
+          ).catch(() => ''),
+        ]);
+        context.activeApp = activeApp;
+        context.activeWindow = activeWindow;
+        context.runningApps = appList.split('\n').filter(Boolean);
       } else if (process.platform === 'win32') {
         context.activeApp = await this.runCommand(
           `powershell -command "(Get-Process | Where-Object {$_.MainWindowHandle -eq (Get-Process -Id (Get-WmiObject Win32_Process | Where-Object {$_.ProcessId -eq (Get-ForegroundWindow | ForEach-Object {$_.ProcessId})}).ProcessId).MainWindowHandle}).ProcessName"`
@@ -53,25 +69,6 @@ class ContextAwareness {
       }
     } catch {
       context.activeApp = 'unknown';
-    }
-
-    // Get running apps
-    try {
-      if (process.platform === 'darwin') {
-        const appList = await this.runCommand(
-          `osascript -e 'tell application "System Events" to get name of every application process whose background only is false'`
-        );
-        context.runningApps = appList
-          .split(',')
-          .map((a) => a.trim())
-          .filter(Boolean);
-      } else if (process.platform === 'linux') {
-        const appList = await this.runCommand(
-          `wmctrl -l 2>/dev/null | awk '{$1=$2=$3=""; print $0}' | sed 's/^ *//'`
-        ).catch(() => '');
-        context.runningApps = appList.split('\n').filter(Boolean);
-      }
-    } catch {
       context.runningApps = [];
     }
 

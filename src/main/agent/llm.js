@@ -176,8 +176,9 @@ const MODEL_CATALOG = {
     keyPrefix: '',
     anthropicCompatible: true,
     models: [
-      { id: 'MiniMax-M2.5',    name: 'MiniMax M2.5',    ctx: 1000000 },
-      { id: 'MiniMax-M2',      name: 'MiniMax M2',      ctx: 1000000 },
+      { id: 'MiniMax-M2.7-fast', name: 'MiniMax M2.7 Fast', ctx: 1000000 },
+      { id: 'MiniMax-M2.5',      name: 'MiniMax M2.5',      ctx: 1000000 },
+      { id: 'MiniMax-M2',        name: 'MiniMax M2',         ctx: 1000000 },
     ],
   },
 };
@@ -529,24 +530,49 @@ async function _anthropicWithTools(
   const url = new URL(options?._messagesPath || '/v1/messages', endpoint || MODEL_CATALOG.anthropic.endpoint);
   const anthropicMessages = _internalToAnthropicMessages(messages);
 
-  const body = JSON.stringify({
+  // ── Prompt caching: mark system prompt and tools for KV cache reuse ──
+  // The system prompt and tool definitions are stable across turns.
+  // Anthropic's prompt caching avoids re-processing them on every request,
+  // reducing latency by ~2x and input token cost by 90% on cache hits.
+  const systemBlocks = [
+    { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
+  ];
+
+  const bodyObj = {
     model,
-    system:     systemPrompt,
+    system:     systemBlocks,
     messages:   anthropicMessages,
-    tools,
     max_tokens: maxTokens,
     temperature,
     stream:     true,
-  });
+  };
+  if (tools && tools.length > 0) {
+    // Mark the last tool with cache_control so the entire tools array is cached
+    const cachedTools = tools.map((t, i) =>
+      i === tools.length - 1
+        ? { ...t, cache_control: { type: 'ephemeral' } }
+        : t
+    );
+    bodyObj.tools = cachedTools;
+  }
+  const body = JSON.stringify(bodyObj);
 
   const headers = {
     'Content-Type':      'application/json',
     'x-api-key':         apiKey,
     'anthropic-version': '2023-06-01',
+    'anthropic-beta':    'prompt-caching-2024-07-31',
   };
   // Forward any extra headers (e.g. anthropic-beta for PDF support)
   if (options?.headers) {
-    for (const [k, v] of Object.entries(options.headers)) headers[k] = v;
+    for (const [k, v] of Object.entries(options.headers)) {
+      // Merge anthropic-beta values instead of overwriting
+      if (k === 'anthropic-beta' && headers['anthropic-beta']) {
+        headers[k] = headers[k] + ',' + v;
+      } else {
+        headers[k] = v;
+      }
+    }
   }
 
   let fullText              = '';
@@ -564,7 +590,12 @@ async function _anthropicWithTools(
     switch (ev.type) {
       case 'message_start':
         if (ev.message?.usage) {
-          usage = { inputTokens: ev.message.usage.input_tokens || 0, outputTokens: 0 };
+          usage = {
+            inputTokens:        ev.message.usage.input_tokens || 0,
+            outputTokens:       0,
+            cacheCreationTokens: ev.message.usage.cache_creation_input_tokens || 0,
+            cacheReadTokens:     ev.message.usage.cache_read_input_tokens || 0,
+          };
         }
         break;
 
@@ -606,6 +637,11 @@ async function _anthropicWithTools(
         break;
     }
   });
+
+  // Log cache metrics
+  if (usage && (usage.cacheCreationTokens || usage.cacheReadTokens)) {
+    console.log(`[LLM] Anthropic cache: created=${usage.cacheCreationTokens} read=${usage.cacheReadTokens} input=${usage.inputTokens}`);
+  }
 
   // Reconstruct rawContent and toolCalls from accumulated blocks (preserve order)
   const rawContent = [];

@@ -33,11 +33,14 @@ class AgentLoop {
     this.cancelled = false;
     this.pendingApprovals = new Map();
     this._sessionId = null; // Set by caller if available
+    this._toolDefsCache = new Map(); // provider → { version, defs }
+    this._toolDefsVersion = 0;
   }
 
   cancel() {
     this.cancelled = true;
   }
+
 
   // --------------------------------------------------------------------------
   // Main entry point
@@ -54,7 +57,7 @@ class AgentLoop {
    * @param {Map}    opts.pendingApprovals  - Shared approval map from core
    * @returns {{ text: string, messages: Array, turns: number }}
    */
-  async run({ messages, systemPrompt, taskId, options = {}, pendingApprovals }) {
+  async run({ messages, systemPrompt, taskId, options = {}, pendingApprovals, _noTools }) {
     const maxTurns = options.maxTurns || 50;
     this.cancelled = false;
 
@@ -78,19 +81,27 @@ class AgentLoop {
 
       this.emit('agent:thinking', { taskId, turn: turns });
 
-      // Get tool definitions in the format the *effective* provider expects.
-      // options.provider may override the global default (e.g. per-step model in Work Mode),
-      // so we must use the overridden provider here — not just getCurrentProvider() —
-      // otherwise Anthropic-format schemas get sent to an OpenAI endpoint (or vice versa),
-      // causing "function name or parameters is empty" HTTP 400 errors.
+      // Get tool definitions — skip entirely for fast-path (no-tools) calls
       const effectiveProvider = options.provider || this.llm.getCurrentProvider();
-      const toolDefs = this.toolRegistry.getToolDefinitions(effectiveProvider);
+      let toolDefs;
+      if (_noTools) {
+        toolDefs = [];
+      } else {
+        const regVersion = this.toolRegistry._toolDefsVersion || 0;
+        const cached = this._toolDefsCache.get(effectiveProvider);
+        if (!cached || cached.version !== regVersion) {
+          this._toolDefsCache.set(effectiveProvider, {
+            version: regVersion,
+            defs: this.toolRegistry.getToolDefinitions(effectiveProvider),
+          });
+        }
+        toolDefs = this._toolDefsCache.get(effectiveProvider).defs;
+      }
 
       // Truncate conversation if it's getting too large for the model's context
       this._truncateConversation(conversation, systemPrompt);
 
       // Call LLM — returns { text, toolCalls, rawContent, stopReason, usage }
-      // options.model / options.provider allow per-step model overrides from Work Mode
       let response;
       try {
         response = await this.llm.callWithTools(systemPrompt, conversation, toolDefs, {

@@ -2665,6 +2665,200 @@ Each slide type has specific content keys — call pptx_list_slide_types for the
     },
     required: ['session_id'],
   },
+
+  // ---------------------------------------------------------------------------
+  // Social Media Controller
+  // ---------------------------------------------------------------------------
+
+  social_set_context: {
+    description: 'Set the business/page context for AI-driven social media content generation. Defines your brand, tone, topics, target audience, and content style.',
+    properties: {
+      business_type:   { type: 'string', description: 'Type of business (e.g. "storybook_company", "smm_agency", "ecommerce_store", "personal_brand").' },
+      brand_name:      { type: 'string', description: 'Brand or page name.' },
+      description:     { type: 'string', description: 'Brief description of what the business does.' },
+      tone:            { type: 'string', description: 'Content tone (e.g. "friendly, creative", "professional, authoritative").' },
+      topics:          { type: 'array', items: { type: 'string' }, description: 'Key topics/themes for content.' },
+      hashtags:        { type: 'array', items: { type: 'string' }, description: 'Preferred hashtags.' },
+      target_audience: { type: 'string', description: 'Target audience description.' },
+      content_style:   { type: 'string', description: 'Content style preferences (e.g. "educational, story-driven", "visual-first, trendy").' },
+    },
+    required: ['business_type'],
+  },
+
+  social_get_context: {
+    description: 'Read the current business context profile used for AI content generation.',
+    properties: {},
+    required: [],
+  },
+
+  social_open: {
+    description: 'Open a social media platform page in the browser. Can navigate to feed, profile, notifications, or upload page.',
+    properties: {
+      platform: { type: 'string', enum: ['tiktok', 'instagram', 'twitter'], description: 'Social media platform.' },
+      page:     { type: 'string', enum: ['feed', 'following', 'profile', 'notifications', 'upload', 'compose', 'explore'], description: 'Page to navigate to. Default: feed.' },
+      username: { type: 'string', description: 'Username for profile page (without @).' },
+      browser:  { type: 'string', description: 'Browser to use. Default: chrome.' },
+    },
+    required: ['platform'],
+  },
+
+  social_read_feed: {
+    description: 'Read the visible feed/timeline content. Returns posts/videos with author, description, stats, and links.',
+    properties: {
+      platform: { type: 'string', enum: ['tiktok', 'instagram', 'twitter'], description: 'Social media platform.' },
+      browser:  { type: 'string', description: 'Browser to use. Default: chrome.' },
+    },
+    required: ['platform'],
+  },
+
+  social_read_post: {
+    description: 'Read details of the currently visible post/video including description, stats, and comments.',
+    properties: {
+      platform: { type: 'string', enum: ['tiktok', 'instagram', 'twitter'], description: 'Social media platform.' },
+      browser:  { type: 'string', description: 'Browser to use. Default: chrome.' },
+    },
+    required: ['platform'],
+  },
+
+  social_read_profile: {
+    description: 'Read a user profile (username, bio, follower/following counts).',
+    properties: {
+      platform: { type: 'string', enum: ['tiktok', 'instagram', 'twitter'], description: 'Social media platform.' },
+      browser:  { type: 'string', description: 'Browser to use. Default: chrome.' },
+    },
+    required: ['platform'],
+  },
+
+  social_read_notifications: {
+    description: 'Read notifications/alerts from a social media platform.',
+    properties: {
+      platform: { type: 'string', enum: ['tiktok', 'instagram', 'twitter'], description: 'Social media platform.' },
+      browser:  { type: 'string', description: 'Browser to use. Default: chrome.' },
+    },
+    required: ['platform'],
+  },
+
+  social_scroll: {
+    description: 'Scroll down on the current social media page to load more content.',
+    properties: {
+      platform: { type: 'string', enum: ['tiktok', 'instagram', 'twitter'], description: 'Social media platform.' },
+      browser:  { type: 'string', description: 'Browser to use. Default: chrome.' },
+      times:    { type: 'number', description: 'Number of scrolls (default: 1, max: 5).' },
+    },
+    required: ['platform'],
+  },
+
+  social_like: {
+    description: 'Like/heart the currently visible post or video.',
+    properties: {
+      platform: { type: 'string', enum: ['tiktok', 'instagram', 'twitter'], description: 'Social media platform.' },
+      browser:  { type: 'string', description: 'Browser to use. Default: chrome.' },
+    },
+    required: ['platform'],
+  },
+
+  social_follow: {
+    description: 'Follow the user on the currently visible profile or video page.',
+    properties: {
+      platform: { type: 'string', enum: ['tiktok', 'instagram', 'twitter'], description: 'Social media platform.' },
+      browser:  { type: 'string', description: 'Browser to use. Default: chrome.' },
+    },
+    required: ['platform'],
+  },
+
+  social_comment: {
+    description: 'Post a comment on the currently visible post/video. If text is omitted, auto-generates a context-aware comment using AI.',
+    properties: {
+      platform: { type: 'string', enum: ['tiktok', 'instagram', 'twitter'], description: 'Social media platform.' },
+      text:     { type: 'string', description: 'Comment text. If omitted, AI generates one based on the business context.' },
+      browser:  { type: 'string', description: 'Browser to use. Default: chrome.' },
+    },
+    required: ['platform'],
+  },
+
+  social_reply: {
+    description: 'Reply to a specific comment on a post. The comment must be visible on the page.',
+    properties: {
+      platform:      { type: 'string', enum: ['tiktok', 'instagram', 'twitter'], description: 'Social media platform.' },
+      comment_index: { type: 'number', description: 'Index of the comment to reply to (0-based, from social_read_post).' },
+      text:          { type: 'string', description: 'Reply text. If omitted, AI generates one.' },
+      browser:       { type: 'string', description: 'Browser to use. Default: chrome.' },
+    },
+    required: ['platform'],
+  },
+
+  social_create_post: {
+    description: 'Navigate to the post creation/upload page. Optionally pre-fills caption text. Media upload requires manual interaction.',
+    properties: {
+      platform: { type: 'string', enum: ['tiktok', 'instagram', 'twitter'], description: 'Social media platform.' },
+      caption:  { type: 'string', description: 'Caption/text for the post. Use social_generate_content to create one.' },
+      browser:  { type: 'string', description: 'Browser to use. Default: chrome.' },
+    },
+    required: ['platform'],
+  },
+
+  social_generate_content: {
+    description: 'AI-generate context-aware social media content (captions, comments, hashtags, post ideas, bios, product listings). Uses the business context from social_set_context.',
+    properties: {
+      platform:                { type: 'string', description: 'Target platform (tiktok, instagram, twitter). Affects character limits and style.' },
+      content_type:            { type: 'string', enum: ['caption', 'comment', 'reply', 'hashtags', 'post_idea', 'bio', 'product_listing'], description: 'Type of content to generate. Default: caption.' },
+      topic:                   { type: 'string', description: 'Topic or subject for the content.' },
+      reference_post:          { type: 'string', description: 'Reference post text for context-aware comments/replies.' },
+      additional_instructions: { type: 'string', description: 'Extra instructions for content generation.' },
+    },
+    required: [],
+  },
+
+  social_activity_log: {
+    description: 'View the social media activity log. Shows recent actions (likes, comments, follows, posts) with timestamps.',
+    properties: {
+      platform: { type: 'string', description: 'Filter by platform (tiktok, instagram, twitter).' },
+      action:   { type: 'string', description: 'Filter by action type (like, comment, follow, read_feed, etc.).' },
+      limit:    { type: 'number', description: 'Number of entries to show (default: 50).' },
+    },
+    required: [],
+  },
+
+  // ---------------------------------------------------------------------------
+  // Skill Management
+  // ---------------------------------------------------------------------------
+
+  skill_read: {
+    description: 'Read a skill file. Use BEFORE any non-trivial task to check for existing procedures. Call with no args to list all skills.',
+    properties: {
+      name: { type: 'string', description: 'Skill name (e.g. "social-media-instagram", "excel-dashboard"). Omit to list all.' },
+    },
+    required: [],
+  },
+
+  skill_update: {
+    description: 'Update a skill file with a new learned procedure. Backs up the current version first. ONLY use after verifying the new procedure works successfully.',
+    properties: {
+      name:    { type: 'string', description: 'Skill name (e.g. "social-media-instagram").' },
+      section: { type: 'string', description: 'Section heading for the update (e.g. "Procedure: Read Reels").' },
+      content: { type: 'string', description: 'The new procedure content (markdown). Include exact tool calls, selectors, parameters.' },
+      reason:  { type: 'string', description: 'Why this update is needed (e.g. "selector changed", "discovered new approach").' },
+      mode:    { type: 'string', enum: ['append', 'replace'], description: 'append (default) adds a new section. replace overwrites an existing section by name.' },
+    },
+    required: ['name', 'content', 'reason'],
+  },
+
+  skill_rollback: {
+    description: 'Rollback a skill file to a previous version. Use if a skill update broke a working procedure.',
+    properties: {
+      name:    { type: 'string', description: 'Skill name to rollback.' },
+      version: { type: 'string', description: 'Version index (0=most recent backup) or "list" to see all backups.' },
+    },
+    required: ['name'],
+  },
+
+  skill_history: {
+    description: 'View backup history of a skill file. Shows all saved versions with timestamps.',
+    properties: {
+      name: { type: 'string', description: 'Skill name. Omit to see all skills with backup counts.' },
+    },
+    required: [],
+  },
 };
 
 module.exports = { TOOL_SCHEMAS };

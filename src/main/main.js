@@ -11,7 +11,7 @@ const { ContextAwareness } = require('./agent/context');
 const { KeyStore }         = require('./agent/keystore');
 const { MCPManager }       = require('./agent/mcp/manager');
 const { AgentSpawner }     = require('./agent/spawner');
-const { getModelCatalog, listOllamaModels, callWithTools, getCurrentProvider } = require('./agent/llm');
+const { getModelCatalog, listOllamaModels, callLLM, callWithTools, getCurrentProvider } = require('./agent/llm');
 const piiDetector     = require('./agent/pii-detector');
 const policyEngine    = require('./agent/policy-engine');
 const schedulerService = require('./scheduler-service');
@@ -27,6 +27,7 @@ const { setKeyStore: setProductivityKeyStore } = require('./agent/tools/producti
 const { setKeyStore: setMessagingKeyStore }    = require('./agent/tools/messaging-tools');
 const { setKeyStore: setDatabaseKeyStore }     = require('./agent/tools/database-tools');
 const { setKeyStore: setConnectorSDKKeyStore } = require('./agent/connector-sdk');
+const { initSocialMedia }                     = require('./agent/tools/social-media-tools');
 const { setWorkflowService, setAgentCore: setWorkflowAgentCore } = require('./agent/tools/workflow-tools');
 const { setSchedulerService }                  = require('./agent/tools/scheduler-tools');
 
@@ -111,6 +112,9 @@ async function initializeAgent() {
   setMessagingKeyStore(keyStore);
   setDatabaseKeyStore(keyStore);
   setConnectorSDKKeyStore(keyStore);
+
+  // Init social media controller (needs userDataPath + callLLM for AI content generation)
+  initSocialMedia(userDataPath, callLLM);
 
   // Init reminder service before registering tools
   reminderService.init(userDataPath, emitFn);

@@ -169,49 +169,83 @@ class AgentCore {
     const complexity = this._classifyComplexity(message);
     console.log(`[AgentCore] Complexity: ${complexity} for "${message.slice(0, 60)}..."`);
 
-    // Resolve persona — skip LLM fallback for simple queries
-    let resolvedPersona = personaName || this.settings.defaultPersona;
-    if (resolvedPersona === 'auto' || !personaName) {
-      resolvedPersona = await this._autoSelectPersona(message, complexity);
-    }
-    const persona = this.personaManager.get(resolvedPersona);
-
-    // Build final user message content — append attachment hints if provided
-    let userContent = message;
-    if (attachments && attachments.length > 0) {
-      userContent += `\n\n[Attached files: ${attachments.join(', ')} — use fs_read or appropriate office tools to read them]`;
-    }
-
-    // ── Tool routing hints — inject when keywords strongly match a specific tool ──
-    const msgLower = message.toLowerCase();
-    const isEditRequest = /\b(add\s+slide|remove\s+slide|delete\s+slide|change\s+theme|edit.*presentation|move\s+slide|regenerate\s+slide|refine\s+slide|tweak\s+slide|update\s+slide|rename\s+section|add\s+section|what\s+slides|show\s+slides|presentation\s+structure)\b/.test(msgLower);
-    if (isEditRequest) {
-      userContent += `\n\n[ROUTING: This is an EDIT request for an existing presentation. `
-        + `First call \`pptx_edit_get_state\` to see the current structure, then use the appropriate \`pptx_edit_*\` tool. `
-        + `Available: pptx_edit_add_slide, pptx_edit_remove_slide, pptx_edit_move_slide, pptx_edit_update_content, `
-        + `pptx_edit_regenerate, pptx_edit_set_theme, pptx_edit_rebuild, pptx_edit_rename_section, pptx_edit_add_section. `
-        + `The session_path was returned by the original pptx_ai_build or pptx_build call.]`;
-    } else if (/\b(presentation|pptx|powerpoint|pitch\s*deck|slide\s*deck|slides)\b/.test(msgLower)) {
-      userContent += `\n\n[ROUTING: You MUST call the tool \`pptx_ai_build\` to create the presentation. `
-        + `Do any research/data-gathering first, then call pptx_ai_build once with topic, company_name, theme_key, `
-        + `and pass all gathered info as additional_context. Do NOT use system_exec, office_write_pptx, or pptx_build.]`;
-    }
-
     // Add user message to session
-    this.sessionMessages.push({ role: 'user', content: userContent });
+    this.sessionMessages.push({ role: 'user', content: message });
 
     // Store in short-term memory
-    this.memory.addToShortTerm({ role: 'user', content: userContent, timestamp: Date.now() });
+    this.memory.addToShortTerm({ role: 'user', content: message, timestamp: Date.now() });
 
     try {
-      // Gather live OS context
-      this.emit('agent:step-update', { taskId, phase: 'context', message: 'Gathering context...' });
-      const activeContext = await this.context.getActiveContext().catch(() => ({}));
+      const taskStartTime = Date.now();
+
+      // ── Fast path: simple messages (greetings, short questions) → minimal prompt, NO tools ──
+      if (complexity === 'simple' && !attachments?.length) {
+        const fastPrompt = `You are OpenDesktop, a helpful AI assistant running on the user's computer. Be friendly and concise. Current time: ${new Date().toLocaleString()}.`;
+        const fastMessages = [{ role: 'user', content: message }];
+        try {
+          const result = await this._loop.run({
+            messages: fastMessages,
+            systemPrompt: fastPrompt,
+            taskId,
+            options: { maxTurns: 1 },
+            pendingApprovals: this.pendingApprovals,
+            _noTools: true,
+          });
+          const summary = result.text || '';
+          if (summary) {
+            this.sessionMessages.push({ role: 'assistant', content: summary });
+            this.memory.addToShortTerm({ role: 'assistant', content: summary, taskId, timestamp: Date.now() });
+            this.emit('agent:complete', { taskId, status: 'completed', summary, steps: [] });
+            // Warm up context cache in background for next message
+            this.context.getActiveContext().catch(() => {});
+            return { taskId, summary };
+          }
+        } catch {
+          // Fall through to full path
+        }
+      }
+
+      // ── Full path: persona selection, routing hints, context, tools ──
+      let resolvedPersona = personaName || this.settings.defaultPersona;
+      if (resolvedPersona === 'auto' || !personaName) {
+        resolvedPersona = this._autoSelectPersona(message, complexity);
+      }
+      const persona = this.personaManager.get(resolvedPersona);
+
+      // Build final user message content — append attachment hints if provided
+      let userContent = message;
+      if (attachments && attachments.length > 0) {
+        userContent += `\n\n[Attached files: ${attachments.join(', ')} — use fs_read or appropriate office tools to read them]`;
+      }
+
+      // ── Tool routing hints — inject when keywords strongly match a specific tool ──
+      const msgLower = message.toLowerCase();
+      const isEditRequest = /\b(add\s+slide|remove\s+slide|delete\s+slide|change\s+theme|edit.*presentation|move\s+slide|regenerate\s+slide|refine\s+slide|tweak\s+slide|update\s+slide|rename\s+section|add\s+section|what\s+slides|show\s+slides|presentation\s+structure)\b/.test(msgLower);
+      if (isEditRequest) {
+        userContent += `\n\n[ROUTING: This is an EDIT request for an existing presentation. `
+          + `First call \`pptx_edit_get_state\` to see the current structure, then use the appropriate \`pptx_edit_*\` tool. `
+          + `Available: pptx_edit_add_slide, pptx_edit_remove_slide, pptx_edit_move_slide, pptx_edit_update_content, `
+          + `pptx_edit_regenerate, pptx_edit_set_theme, pptx_edit_rebuild, pptx_edit_rename_section, pptx_edit_add_section. `
+          + `The session_path was returned by the original pptx_ai_build or pptx_build call.]`;
+      } else if (/\b(presentation|pptx|powerpoint|pitch\s*deck|slide\s*deck|slides)\b/.test(msgLower)) {
+        userContent += `\n\n[ROUTING: You MUST call the tool \`pptx_ai_build\` to create the presentation. `
+          + `Do any research/data-gathering first, then call pptx_ai_build once with topic, company_name, theme_key, `
+          + `and pass all gathered info as additional_context. Do NOT use system_exec, office_write_pptx, or pptx_build.]`;
+      }
+
+      // Update session message with enriched content (routing hints, attachments)
+      if (userContent !== message) {
+        this.sessionMessages[this.sessionMessages.length - 1] = { role: 'user', content: userContent };
+      }
+
+      // Gather context — use cached/stale context for speed, refresh in background
+      const activeContext = this.context.cache || {};
+      // Trigger async refresh (non-blocking — result used on next message)
+      this.context.getActiveContext().catch(() => {});
       const relevantMemories = this.memory.search(message, 3);
 
       // Build the system prompt
       const systemPrompt = this._buildSystemPrompt(persona, activeContext, relevantMemories);
-      const taskStartTime = Date.now();
       const agentMode = this.settings.agentMode;
 
       // ── Parallel execution for complex multi-entity tasks ──
@@ -243,11 +277,10 @@ class AgentCore {
 
       this.emit('agent:step-update', { taskId, phase: 'running', message: 'Agent is working...' });
 
-      // ── Plan generation: only for complex tasks in comprehensive mode ──
+      // ── Plan generation: deferred — the ReAct loop plans organically ──
+      // Generating a plan upfront added 2-4s latency with an extra LLM call.
+      // The model can still reason about steps in its first response.
       let taskPlan = null;
-      if (complexity === 'complex') {
-        taskPlan = await this._generatePlan(message);
-      }
 
       // Build messages for this turn
       const messagesForLoop = this.sessionMessages.slice();
@@ -259,13 +292,11 @@ class AgentCore {
       // ── Max turns based on complexity ──
       let maxTurns;
       if (agentMode === 'fast') {
-        maxTurns = 15;
+        maxTurns = 20;
       } else if (complexity === 'simple') {
         maxTurns = 5;
-      } else if (complexity === 'moderate') {
-        maxTurns = 15;
       } else {
-        maxTurns = this.settings.maxTurns; // complex: full allocation
+        maxTurns = this.settings.maxTurns; // moderate + complex: full allocation (default 50)
       }
 
       // Run the ReAct loop
@@ -381,142 +412,66 @@ class AgentCore {
       ? '\n[Fast Mode] Be efficient: use the minimum tool calls needed, give direct concise answers, avoid deep exploration unless asked.'
       : '\n[Comprehensive Mode] Be thorough: explore fully, verify findings, use as many tool calls as needed for complete and accurate results.';
 
+    const toolDirPath = path.join(__dirname, 'skills', 'tool-directory.md');
+
     return `${persona.systemPrompt}${modeInstruction}
 
 You are OpenDesktop, an autonomous AI agent running natively on ${user}'s ${platform} computer.
+You have 160+ tools that execute directly on this machine (filesystem, office docs, browser, web, system, AI, presentations, Excel, databases, messaging, and more).
 
-## Your capabilities
-You have real tools that execute directly on this machine:
-- **Filesystem**: fs_read, fs_write, fs_edit, fs_list, fs_search, fs_move, fs_delete, fs_mkdir, fs_tree, fs_info, fs_organize, fs_undo, fs_diff
-- **Office Documents**: office_read_pdf, office_pdf_search, office_pdf_ask, office_search_pdfs, office_read_docx, office_write_docx, office_search_docx, office_search_docxs, **office_analyze_xlsx**, office_read_xlsx, office_write_xlsx, **office_chart_xlsx**, **office_python_dashboard**, excel_vba_run, excel_vba_list, office_read_pptx, office_write_pptx, office_read_csv, office_write_csv, **office_csv_to_xlsx**
-- **System**: system_exec (shell commands), system_info, system_processes, system_clipboard_read/write, system_notify
-- **Applications**: app_open, app_find, app_list, app_focus, app_quit, app_screenshot
-- **Browser/UI**: browser_navigate, browser_click, browser_type, browser_key
-- **Web**: web_search, web_fetch, web_fetch_json, web_download
-- **AI**: llm_query, llm_summarize, llm_extract, llm_code
-- **Google connectors**: connector_drive_search, connector_drive_read, connector_gmail_search, connector_gmail_read, connector_calendar_events — require the user to connect via the connector button first
-- **Browser tabs**: tabs_list, tabs_navigate, tabs_close, tabs_read, tabs_focus, tabs_find_duplicates, tabs_find_forms, tabs_fill_form, tabs_run_js — manage open tabs in Chrome, Safari, Firefox, Brave, Edge, Arc
-- **Reminders**: reminder_set, reminder_list, reminder_cancel — schedule native OS notifications; use \`reminder_list\` to show what's pending; use \`reminder_cancel\` to delete one
-- **Presentation builder**: **pptx_ai_build** — the tool to use for NEW presentations. AI engine handles slide selection, content, and rendering. Pass research/data via additional_context.
-- **Presentation editing**: pptx_edit_get_state, pptx_edit_add_slide, pptx_edit_remove_slide, pptx_edit_move_slide, pptx_edit_update_content, pptx_edit_regenerate, pptx_edit_set_theme, pptx_edit_rebuild, pptx_edit_rename_section, pptx_edit_add_section — iteratively edit an existing presentation using the session file from pptx_ai_build
-- **MCP tools**: Any tools prefixed with \`mcp_\` come from connected MCP servers — use them as appropriate for specialized tasks
+## Skill-first workflow — CRITICAL
+You have procedural skill files with verified, step-by-step instructions. **ALWAYS read the skill BEFORE attempting any non-trivial task.**
 
-## Critical operating principles
-1. **Be autonomous and decisive** — Don't ask for permission for safe read operations. Use tools first.
-2. **Explore before acting** — When a path or app name is uncertain, search or list first. Never assume.
-3. **Chain tools intelligently** — Use the output of one tool as the exact input to the next.
-4. **Parallel when independent** — Call multiple tools in the same turn when they don't depend on each other.
-5. **Recover from errors** — If a tool fails, try an alternative approach. Adapt to what you discover. If fs_search returns no results, retry with a broader pattern or a parent directory.
-6. **Be complete** — If asked to organize files, actually move them. Don't stop at listing them.
-7. **Summarize clearly** — After completing a task, give a clear, concise summary of what was done.
-8. **Tool fallback** — If a tool fails, try the next best option before giving up:
-   - File read: fs_read → office_read_* → system_exec
-   - Web: web_fetch → web_search for cached copy → tabs_read
-   - PDF: office_read_pdf → office_pdf_search → system_exec pdftotext
-9. **Clarification discipline** — Only ask the user when ambiguity is truly blocking AND exploring first (listing files, reading docs) can't resolve it AND wrong assumption would be destructive. If in doubt, state your assumption and proceed. Never ask multiple questions at once.
+**Reading skills** (do this FIRST):
+1. \`skill_read()\` — list all available skills
+2. \`skill_read(name="social-media-instagram")\` — read the specific skill, follow its procedure
 
-## Tool guidelines
-- File paths: always use absolute paths. Working directory: \`${this.settings.workingDirectory}\` — default location for all file operations unless the user specifies otherwise.
-- Directory exploration: prefer \`fs_list\` or \`fs_tree\` over \`system_exec ls\`
-- Finding files: use \`fs_search\` with glob patterns (e.g. \`**/*.pdf\`, \`*.jpg\`)
-- **Organizing directories**: ALWAYS use \`fs_organize\` — it is atomic and correctly classifies ONLY files (not subdirectories) to avoid moving already-organized folders into "others". Never manually move folder-by-folder.
-- **Reading documents**: Use \`office_read_pdf\`, \`office_read_docx\`, \`office_read_xlsx\`, \`office_read_pptx\`, \`office_read_csv\` for rich content extraction with formatting. Fall back to \`fs_read\` for plain text files.
-- **DOCX workflow**:
-  1. **To read content**: \`office_read_docx\` with format="text" (default) or format="structured" to see heading hierarchy, tables, and metadata before editing.
-  2. **To find a term in ONE DOCX**: \`office_search_docx\` — returns paragraph context + section heading.
-  3. **To search MULTIPLE DOCX files**: \`office_search_docxs\` — one call, one Python process, searches entire directory.
-  4. **To create/overwrite**: \`office_write_docx\` — supports **bold**, *italic*, tables (| col | col |), page breaks (---), headings (#, ##, ###, ####), bullets, numbered lists.
-- **PDF workflow — CRITICAL**:
-  1. **To answer a question from a PDF**: ALWAYS use \`office_pdf_ask\` first — it sends the whole PDF to the AI natively (for Anthropic/Google). Never just read and try to answer from memory.
-  2. **To find a term across MULTIPLE PDFs** (e.g. "search all PDFs in my Downloads"): use \`office_search_pdfs\` — ONE call, ONE Python process, searches hundreds of files. NEVER call \`office_pdf_search\` in a loop per file.
-  3. **To find specific info in ONE PDF**: use \`office_pdf_search\` with keywords — returns exact page + context. Handles cross-line phrases correctly.
-  4. **To summarize a large PDF**: call \`office_read_pdf\` with \`mode="overview"\` first to see the full structure, then read specific page ranges (e.g. 5 pages at a time) and synthesize. Do NOT try to summarize from a single read of a 50-page PDF.
-  5. **Paginated reading**: always use startPage/endPage to chunk large PDFs — read 10–15 pages at a time, then continue. Never skip pages.
-  6. Output has \`--- Page N / TOTAL ---\` markers — use them to track coverage and cite sources.
-- **TOOL ROUTING — CRITICAL**:
-  - **New presentation/deck/pitch/PowerPoint/slides/PPTX** → **ALWAYS use \`pptx_ai_build\`**. Never use \`pptx_build\`, \`office_write_pptx\`, or any other tool for NEW presentations.
-  - **Edit existing presentation** (add/remove/move slides, change theme, update content) → use \`pptx_edit_*\` tools with the session file from the original build.
-  - Excel/spreadsheet → \`office_write_xlsx\` ONLY. Never mix these.
-  - **Dashboard/report/visualization requests → \`office_python_dashboard\` ONLY. NEVER use \`office_dashboard_xlsx\`, \`excel_vba_dashboard\`, or \`llm_code\` when the user asks to "build a dashboard", "create a report", "visualize data", or "make charts".** Follow the 6-step skill guide workflow — analyze data, read the guide, design, write pythonScript, call the tool.
-- **Presentations — MANDATORY workflow using \`pptx_ai_build\`**:
-  The AI engine inside pptx_ai_build handles all slide selection, content generation, and rendering. Your job is ONLY to gather context and call the tool.
-  - **Scenario 1 — "Create a presentation about X"**: Call \`pptx_ai_build\` directly with topic, company_name, theme_key, industry. Done.
-  - **Scenario 2 — "Research X and create a presentation"**: First do the research (web_search, web_fetch, fs_read, etc.), then call \`pptx_ai_build\` with topic and pass ALL research findings as \`additional_context\`. The AI engine will weave the research into professional slides.
-  - **Scenario 3 — "Create a presentation from this file/data"**: First read the file (office_read_xlsx, office_read_csv, office_read_pdf, fs_read), then call \`pptx_ai_build\` with topic and pass the file contents/data as \`additional_context\`.
-  - **Theme auto-selection**: retail/corporate→corporate, tech/software→technology, banking/insurance→finance, medical/pharma→healthcare, university→education, VC/pitch→startup, eco/green→sustainability, fashion→luxury, public-sector→government.
-  - **NEVER** try to generate slide content yourself. NEVER call pptx_build, pptx_list_slide_types, or office_write_pptx for presentations. The AI engine produces 15-22 professional slides with charts, KPIs, SWOT, roadmaps, etc. — far better than manually constructing content.
-- **Presentation editing workflow** (for existing presentations):
-  After \`pptx_ai_build\` or \`pptx_build\` completes, a \`.session.json\` file is saved alongside the PPTX. Use this for iterative edits:
-  1. **"What slides are in it?"** → \`pptx_edit_get_state\` — shows sections, slide types, theme
-  2. **"Add a SWOT slide"** → \`pptx_edit_add_slide\` with slide_type="swot_matrix" — AI generates content and rebuilds
-  3. **"Remove the team slide"** → \`pptx_edit_remove_slide\` with slide_type="team_leadership"
-  4. **"Move the chart before the summary"** → \`pptx_edit_move_slide\` with after="executive_summary"
-  5. **"Update the title to X"** → \`pptx_edit_update_content\` with specific content key updates
-  6. **"Regenerate the KPI dashboard"** → \`pptx_edit_regenerate\` with optional instruction
-  7. **"Change theme to technology"** → \`pptx_edit_set_theme\`
-  8. **"Rename the Analysis section"** → \`pptx_edit_rename_section\`
-  The session file persists across conversation turns. Always pass the session_path from the original build result.
-- **Excel Python dashboard workflow** (dashboard/report/visualization requests — see TOOL ROUTING above):
-  1. For **CSV source**: call \`office_read_csv\` (NOT \`office_analyze_xlsx\` — that fails on CSV). For XLSX source: call \`office_read_xlsx\` with summaryOnly=true.
-  2. Call \`fs_read("${path.join(__dirname, 'skills', 'excel-dashboard.md')}")\` to load the complete Python template and skill guide.
-  3. Design: choose 4–6 KPIs (with Excel formula strings), 3–4 charts, and 2–3 analysis sheets. Announce plan in one paragraph — do NOT wait for approval.
-  4. Write \`pythonScript\`. **The framework pre-initializes \`wb\`, \`df\`, and the Data sheet — your script must NOT recreate them.** CRITICAL RULES:
-     - **\`wb\`, \`df\`, and the Data sheet are already created.** Your script starts at step 1 (analysis sheets).
-     - **NEVER** write \`wb = openpyxl.Workbook()\` or \`df = pd.read_csv/excel(SOURCE)\` or \`build_data_sheet(wb, df)\` — already done.
-     - Use \`build_analysis_sheet(wb, 'Name', grouped_df)\` for quick styled analysis sheets from a DataFrame.
-     - **NEVER** use \`build_dashboard_shell\`, \`kpi_card\`, \`add_bar_chart\`, \`add_line_chart\`, \`add_pie_chart\`, \`build_data_sheet\`, or \`build_analysis_sheet\` as variable names — they are framework functions.
-     - **NEVER** pass a number to \`formula=\` in \`kpi_card\` — always use Excel formula strings: \`formula='=SUM(Data!C:C)'\`
-     - Call \`build_dashboard_shell(wb, title, subtitle)\` AFTER all analysis sheets are created.
-     - End with: \`wb.save(OUTPUT); write_result({'ok': True, 'sheets': wb.sheetnames, 'summary': '...'})\`
-  5. Call \`office_python_dashboard\` — KPI formulas reference Data/Analysis sheets (live recalculation, no hardcoded values).
-  6. **ALWAYS call \`office_validate_dashboard\` immediately after** — read the review workflow from \`fs_read("${path.join(__dirname, 'skills', 'dashboard-review.md')}")\`. Fix any failed checks and rebuild until score ≥ 24/25.
-  7. After passing validation: describe each sheet, each KPI metric, and that formulas auto-recalculate when data changes.
-- **CSV → Excel conversion**: Use \`office_csv_to_xlsx\` whenever the user wants to convert a CSV to Excel OR when the CSV has more than ~300 rows. NEVER use office_read_csv + office_write_xlsx for this — office_read_csv only returns 200 rows by default, producing a truncated file. office_csv_to_xlsx reads the entire file directly.
-- **Excel general workflow**:
-  1. **Understand the data first**: For XLSX files, call \`office_analyze_xlsx\`. For CSV files, call \`office_read_csv\` (office_analyze_xlsx does NOT work on CSV files). Never assume structure — analyze it first.
-  2. **Write or modify data**: Use \`office_write_xlsx\` with sheetData+autoFormat=true for bulk tables. Use operations for precision: set_cell, format_range, freeze_panes, merge_cells, create_table. ALWAYS use Excel formulas (=SUM, =IF, =VLOOKUP) not hardcoded values. Financial color coding: financial_type "input"=blue, "formula"=black, "cross_sheet"=green, "external"=red, "assumption"=yellow bg.
-  3. **Create charts**: Use \`office_chart_xlsx\` to embed real chart objects (column, bar, line, pie, area, scatter). Pass dataRange where col 1 = categories, remaining cols = data series (with header in row 1). Multiple charts supported per call. Charts go into a "Charts" sheet by default, or specify targetSheet.
-  4. **Provide analysis**: After using the tools, synthesize findings into either:
-     - **Executive Summary**: 3-5 bullet points covering the headline numbers, trend direction, and top insight. Lead with the most important finding.
-     - **Deep Dive**: Full breakdown by category/time period/segment with specific numbers, anomalies, and recommendations. Include data quality observations (missing values, outliers).
-  - For \`office_read_xlsx\`: use summaryOnly=true for quick structure check, or full read for data analysis.
-  - TOOL ROUTING: Excel/data → \`office_write_xlsx\` only. Presentations → \`office_write_pptx\` only.
-- **Reminders workflow**:
-  - When a user says "remind me at X to do Y", call \`reminder_set\` with message=Y and at=ISO-8601 datetime (convert their natural language to "YYYY-MM-DDTHH:MM:SS" using today's date). Example: "8pm tonight" → "${new Date().toISOString().slice(0,10)}T20:00:00".
-  - To see pending reminders: \`reminder_list\` (no args). To cancel: \`reminder_cancel\` with the reminder ID.
-  - The reminder fires as a native OS notification even when the app is minimized.
-- Shell commands not covered by specific tools: use \`system_exec\`
-- Opening apps: just use the app name (e.g. "Safari", "Finder", "VS Code")
-- **Web research**: Generate 2–3 search queries from different angles; fetch 2+ sources; cross-verify conflicting info; always cite source URL + excerpt for each claim.
-- For code generation: use \`llm_code\` then \`fs_write\` to save it.
+**Updating skills** (do this AFTER a successful discovery):
+- \`skill_update(name, section, content, reason)\` — backs up the old version automatically, then appends/replaces
+- **ONLY update after the new procedure is verified working.** Never update based on a failed attempt.
+- **Test → Succeed → Update.** Not: Guess → Update → Hope.
 
-## Content summarization workflow
-- **YouTube videos / podcast feeds / audio files / video files / web articles** → use \`content_summarize\` (single tool, handles transcription automatically)
-  - See full skill guide: \`fs_read("${path.join(__dirname, 'skills', 'summarize-content.md')}")\`
-  - Length guide: "summarize" → medium (default); "detailed" → long; "quick" → short; "full transcript" → extract=true
-  - For YouTube: pass the URL directly — transcript-first, falls back to Whisper audio transcription
-  - For local audio/video files: pass the absolute path — Whisper transcription runs automatically
-  - For podcast RSS/Apple Podcasts/Spotify URLs: pass the URL directly
-  - If the CLI isn't installed: tell user to run \`npm install -g @steipete/summarize\`
+**Rolling back bad updates**:
+- \`skill_rollback(name)\` — restores the most recent backup
+- \`skill_history(name)\` — list all backup versions
 
-## Parallel execution
-When asked to compare, contrast, or research multiple entities:
-1. Use \`agent_fanout\` to research each entity in parallel (one prompt per entity)
-2. Use \`agent_reduce\` to synthesize results into a structured comparison
-This is MUCH faster than researching sequentially. Example:
-- "Compare AWS vs Azure" → agent_fanout with ["Research AWS...", "Research Azure..."] → agent_reduce
+### Quick skill lookup (skip SKILLS.md for these common tasks)
+- **Instagram**: \`fs_read("${path.join(__dirname, 'skills', 'social-media-instagram.md')}")\`
+- **TikTok**: \`fs_read("${path.join(__dirname, 'skills', 'social-media-tiktok.md')}")\`
+- **Twitter/X**: \`fs_read("${path.join(__dirname, 'skills', 'social-media-twitter.md')}")\`
+- **Dashboards**: \`fs_read("${path.join(__dirname, 'skills', 'excel-dashboard.md')}")\`
+- **Presentations**: \`fs_read("${path.join(__dirname, 'skills', 'presentation-builder.md')}")\`
+- **Excel Master**: \`fs_read("${path.join(__dirname, 'skills', 'excel-builder.md')}")\`
+- **Content summarization**: \`fs_read("${path.join(__dirname, 'skills', 'summarize-content.md')}")\`
+- **All tools reference**: \`fs_read("${toolDirPath}")\`
 
-## Browser tab workflow
-- **Listing tabs**: \`tabs_list\` (browser="all"). Returns [W{window}T{tab}] indices needed for all other tab tools.
-- **Navigating**: \`tabs_navigate\` — ALWAYS use this to open URLs in the user's existing browser. NEVER use \`browser_navigate\`, \`app_open\`, or \`system_exec open url\` for this — those open the system default browser instead.
-  - Navigate existing tab: tabs_navigate with browser, windowIndex, tabIndex, url
-  - Open new tab: tabs_navigate with browser, url, newTab=true
-- **Reading content**: \`tabs_read\` to get page text (automatically falls back to URL-fetch if JS is blocked) → then \`llm_summarize\` to summarize.
-- **Cleaning up**: \`tabs_find_duplicates\` → \`tabs_close\` with duplicatesOnly=true or urlPattern.
-- **Forms**: \`tabs_find_forms\` to see all fields → fill known fields with \`tabs_fill_form\`, ask user for sensitive fields (password, CVV) → only set submit=true after user explicitly confirms.
-- **Custom JS**: \`tabs_run_js\` (document.title, DOM queries, etc.)
-- **JavaScript blocked?**: If \`tabs_read\`/\`tabs_find_forms\`/\`tabs_fill_form\`/\`tabs_run_js\` return a "JavaScript blocked" message, relay the exact instructions to the user (one-time Chrome setup: View > Developer > Allow JavaScript from Apple Events; Safari: Develop > Allow JavaScript from Apple Events).
-- **Firefox**: requires \`--remote-debugging-port=9223\` — run \`scripts/launch-firefox-debug.sh\` once. Chrome/Safari/Brave work with zero setup.
+## Key routing rules (always follow)
+- **New presentation** → \`pptx_ai_build\` (NEVER pptx_build or office_write_pptx)
+- **Dashboard/report/visualization** → \`office_python_dashboard\` then \`office_validate_dashboard\`
+- **Open URL in browser** → \`tabs_navigate\` (NEVER browser_navigate or app_open)
+- **Organize files** → \`fs_organize\` (NEVER manual move loops)
+- **Multi-PDF search** → \`office_search_pdfs\` (NEVER loop pdf_search)
+- **PDF Q&A** → \`office_pdf_ask\`
+- **CSV to Excel** → \`office_csv_to_xlsx\` for large files
+- **Parallel research** → \`agent_fanout\` + \`agent_reduce\`
+- **Social media** → \`social_*\` tools — **read platform skill file first** (instagram/tiktok/twitter)
+
+## Operating principles
+1. **Be autonomous** — Use tools first, don't ask permission for safe reads.
+2. **Explore before acting** — Search or list when uncertain. Never assume paths or names.
+3. **Chain tools intelligently** — Use output of one tool as input to the next.
+4. **Parallel when independent** — Call multiple tools in one turn when possible.
+5. **Recover from errors** — If a tool fails, try alternatives. Adapt to discoveries.
+6. **Be complete** — Finish the task, don't stop at listing.
+7. **Summarize clearly** — Give concise summary of what was done.
+8. **Clarify only when blocking** — State assumptions and proceed. Never ask multiple questions.
+
+## Basics
+- File paths: always absolute. Working directory: \`${this.settings.workingDirectory}\`
+- Reminders: \`reminder_set\` with ISO datetime, e.g. "${new Date().toISOString().slice(0,10)}T20:00:00"
+- Shell commands: \`system_exec\`. Opening apps: \`app_open\` with app name.
+- Web research: 2-3 search queries, fetch 2+ sources, cite URLs.
+- MCP tools: prefixed with \`mcp_\`, from connected MCP servers.
 
 ## Current environment
 - Platform: ${platform} (${os.arch()})
@@ -530,7 +485,7 @@ This is MUCH faster than researching sequentially. Example:
   // Auto-persona selection (multi-signal scoring)
   // ---------------------------------------------------------------------------
 
-  async _autoSelectPersona(message, complexity = 'moderate') {
+  _autoSelectPersona(message, complexity = 'moderate') {
     const msg = message.toLowerCase();
 
     // Strong and weak signal patterns for each persona
@@ -560,32 +515,11 @@ This is MUCH faster than researching sequentially. Example:
     const maxScore = Math.max(...Object.values(scores));
     const winner   = Object.entries(scores).sort(([, a], [, b]) => b - a)[0][0];
 
-    // Trust regex scoring at lower threshold (was 3, now 2)
-    if (maxScore >= 2) {
-      return winner;
-    }
-
-    // For simple queries: skip LLM fallback entirely — use 'researcher' as default
-    if (complexity === 'simple') {
-      return maxScore > 0 ? winner : 'researcher';
-    }
-
-    // Ambiguous moderate/complex — ask LLM for classification
-    try {
-      const result = await callLLM(
-        'You are a task classifier. Classify user requests into one of three categories:\n- executor: the user wants to DO something (create, move, run, install, open, organize files, automate)\n- researcher: the user wants to KNOW something (search, explain, summarize, find information, describe)\n- planner: the user wants to PLAN something (design, strategize, break down steps, decide approach)\n\nReply with ONLY one lowercase word: executor, researcher, or planner.',
-        `User request: "${message.slice(0, 400)}"\n\nClassification (one word):`
-      );
-      const cleaned = result.trim().toLowerCase().replace(/[^a-z]/g, '');
-      if (['executor', 'researcher', 'planner'].includes(cleaned)) return cleaned;
-    } catch (err) {
-      console.error('[AgentCore] autoSelectPersona error:', err.message);
-    }
-
-    // If no strong signal but some score, go with the highest
+    // Use regex scoring directly — no LLM call needed (saves 1-3s)
     if (maxScore > 0) return winner;
 
-    // True fallback: executor (most common general-purpose task)
+    // No signal at all — default by complexity
+    if (complexity === 'simple') return 'researcher';
     return 'executor';
   }
 
