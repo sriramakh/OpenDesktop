@@ -130,15 +130,24 @@ class ToolRegistry {
    * @param {'anthropic'|'openai'|'ollama'|'google'|'deepseek'} provider
    * @returns {Array} Provider-specific tool definition array
    */
-  getToolDefinitions(provider = 'anthropic') {
+  getToolDefinitions(provider = 'anthropic', model = '') {
     let tools = Array.from(this.tools.values());
 
-    // OpenAI-compatible providers have a 128-tool limit
+    // Provider-specific tool limits
     const OPENAI_TOOL_LIMIT = 128;
+    // Ollama: small models (<= 12B) get fewer tools to stay within context
+    // Match explicit size suffix (qwen3.5:9b) or known small model names
+    const KNOWN_SMALL = /^(llama3\.2|llama3\.2:|phi3|phi3:|gemma2:2b|gemma2:7b|gemma3:4b|qwen2\.5:|qwen3:|mistral(?!-nemo)(?!-large)(?::|\b))/i;
+    const hasSizeSuffix = model && /[:\-]([0-9]+)b/i.test(model) && parseInt(RegExp.$1, 10) <= 12;
+    const ollamaSmall = hasSizeSuffix || KNOWN_SMALL.test(model || '');
+    const OLLAMA_TOOL_LIMIT = ollamaSmall ? 48 : 128;
     const needsTrim = ['openai', 'deepseek', 'xai', 'mistral', 'groq', 'together'].includes(provider)
       || (!['anthropic', 'minimax', 'google', 'ollama'].includes(provider));
     if (needsTrim && tools.length > OPENAI_TOOL_LIMIT) {
       tools = this._trimToolsToLimit(tools, OPENAI_TOOL_LIMIT);
+    }
+    if (provider === 'ollama' && tools.length > OLLAMA_TOOL_LIMIT) {
+      tools = this._trimToolsToLimit(tools, OLLAMA_TOOL_LIMIT);
     }
 
     switch (provider) {
@@ -170,25 +179,37 @@ class ToolRegistry {
     // Low-priority tools that can be dropped when hitting provider limits.
     // Order matters: first items get dropped first.
     const LOW_PRIORITY = new Set([
-      // Enterprise tools — most users won't have these configured
-      'jira_list_issues', 'jira_create_issue', 'jira_update_issue', 'jira_search', 'jira_get_issue',
-      'linear_list_issues', 'linear_create_issue', 'linear_search',
-      'notion_search', 'notion_read_page', 'notion_create_page', 'notion_update_page',
+      // Enterprise integrations — most users won't have these configured
+      'jira_search', 'jira_get_issue', 'jira_create_issue', 'jira_update_status', 'jira_add_comment',
+      'linear_list_issues', 'linear_create_issue', 'linear_update_issue',
+      'notion_search', 'notion_read_page', 'notion_create_page', 'notion_append_block',
       'slack_send', 'slack_send_blocks', 'slack_search',
       'teams_send', 'teams_send_card',
       'github_list_repos', 'github_list_issues', 'github_list_prs',
       'github_create_issue', 'github_create_pr', 'github_get_file', 'github_search_code', 'github_comment',
       'db_list_connections', 'db_add_connection', 'db_test_connection', 'db_schema', 'db_describe', 'db_query',
+      // Google connectors (need OAuth setup)
+      'connector_drive_search', 'connector_drive_read', 'connector_gmail_search', 'connector_gmail_read', 'connector_calendar_events',
       // Legacy/specialized
       'excel_vba_run', 'excel_vba_list',
-      'pptx_generate_content', 'pptx_build',
-      // Workflow/orchestration tools
-      'workflow_create', 'workflow_run', 'workflow_list', 'workflow_get',
-      'schedule_create', 'schedule_list', 'schedule_cancel', 'schedule_get',
-      'work_create_task', 'work_list_tasks', 'work_update_task', 'work_run_task',
+      'pptx_generate_content', 'pptx_build', 'pptx_list_themes', 'pptx_list_slide_types',
+      // Workflow/orchestration/scheduler
+      'workflow_save', 'workflow_run', 'workflow_list', 'workflow_delete', 'workflow_export', 'workflow_import',
+      'schedule_create', 'schedule_list', 'schedule_delete', 'schedule_enable', 'schedule_disable', 'schedule_run_now',
+      'agent_spawn', 'agent_fanout', 'agent_map', 'agent_reduce',
       // Excel Master — less common tools
-      'excel_list_templates', 'excel_list_themes',
-      'excel_row_col_op', 'excel_sheet_op',
+      'excel_list_templates', 'excel_list_themes', 'excel_row_col_op', 'excel_sheet_op',
+      'excel_add_feature', 'excel_change_theme', 'excel_redo',
+      // Presentation editing — specialized
+      'pptx_edit_move_slide', 'pptx_edit_rename_section', 'pptx_edit_add_section',
+      'pptx_edit_regenerate', 'pptx_edit_set_theme',
+      // Social media — specialized
+      'social_reply', 'social_create_post', 'social_read_notifications', 'social_get_context',
+      // Office — specialized
+      'office_dashboard_xlsx', 'office_validate_dashboard', 'office_csv_to_xlsx',
+      'office_search_docx', 'office_search_docxs',
+      // Skill management
+      'skill_update', 'skill_rollback', 'skill_history',
     ]);
 
     const core = [];
@@ -252,7 +273,7 @@ class ToolRegistry {
         type: 'function',
         function: {
           name: t.name,
-          description: schema?.description || t.description,
+          description: this._sanitizeOllamaDesc(schema?.description || t.description),
           parameters: {
             type: 'object',
             properties: this._simplifyProperties(schema?.properties || this._inferProperties(t)),
@@ -270,14 +291,22 @@ class ToolRegistry {
       const simpleType = val.type === 'array' ? 'string'
         : val.type === 'object' ? 'string'
         : val.type || 'string';
-      const desc = val.type === 'array'
+      let desc = val.type === 'array'
         ? `${val.description || key} (pass as JSON array string)`
         : val.type === 'object'
         ? `${val.description || key} (pass as JSON object string)`
         : val.description || key;
+      // Strip literal { } from descriptions — Ollama's parser chokes on them
+      desc = desc.replace(/[{}]/g, '');
       result[key] = { type: simpleType, description: desc };
     }
     return result;
+  }
+
+  /** Sanitize tool description for Ollama (strip braces that break JSON parsing) */
+  _sanitizeOllamaDesc(desc) {
+    if (!desc) return '';
+    return desc.replace(/[{}]/g, '');
   }
 
   // ---- Google Gemini format ----

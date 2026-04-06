@@ -11,7 +11,7 @@ const { ContextAwareness } = require('./agent/context');
 const { KeyStore }         = require('./agent/keystore');
 const { MCPManager }       = require('./agent/mcp/manager');
 const { AgentSpawner }     = require('./agent/spawner');
-const { getModelCatalog, listOllamaModels, callLLM, callWithTools, getCurrentProvider } = require('./agent/llm');
+const { getModelCatalog, listOllamaModels, callLLM, callWithTools, getCurrentProvider, getCurrentModel } = require('./agent/llm');
 const piiDetector     = require('./agent/pii-detector');
 const policyEngine    = require('./agent/policy-engine');
 const schedulerService = require('./scheduler-service');
@@ -209,6 +209,26 @@ function setupIPC() {
 
   ipcMain.handle('tools:list', async () => {
     return agentCore.toolRegistry.listTools();
+  });
+
+  ipcMain.handle('tools:active', async () => {
+    const provider = getCurrentProvider();
+    const model = getCurrentModel();
+    const defs = agentCore.toolRegistry.getToolDefinitions(provider, model);
+    const total = agentCore.toolRegistry.listTools().length;
+    return {
+      active: defs.length,
+      total,
+      provider,
+      model,
+      tools: defs.map(d => {
+        // Extract name from provider-specific format
+        if (d.name) return d.name; // Anthropic
+        if (d.function?.name) return d.function.name; // OpenAI/Ollama
+        if (d.functionDeclarations) return d.functionDeclarations.map(f => f.name); // Gemini (array)
+        return '?';
+      }).flat(),
+    };
   });
 
   // ── Models ─────────────────────────────────────────────────────────────────

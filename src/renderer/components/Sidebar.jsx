@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Brain,
   Zap,
@@ -53,6 +53,11 @@ const TOOL_CATEGORY_ICONS = {
 
 export default function Sidebar({ activePersona, onPersonaChange, history, selectedHistoryId, onSelectHistory, tools, mcpServers, showContext, onToggleContext, onNewSession, workItems, selectedWorkItemId, onSelectWorkItem, onNewWorkItem, onImportJira }) {
   const [expandedSection, setExpandedSection] = useState('persona');
+  const [activeToolInfo, setActiveToolInfo] = useState(null);
+
+  useEffect(() => {
+    window.api?.activeTools?.().then(setActiveToolInfo).catch(() => {});
+  }, [tools]);
 
   const toggleSection = (section) => {
     setExpandedSection(expandedSection === section ? null : section);
@@ -108,7 +113,9 @@ export default function Sidebar({ activePersona, onPersonaChange, history, selec
           onClick={() => toggleSection('tools')}
         >
           <span className="flex items-center gap-1.5">
-            <Wrench size={11} /> Tools ({tools.length})
+            <Wrench size={11} /> Tools {activeToolInfo && activeToolInfo.active < activeToolInfo.total
+              ? `(${activeToolInfo.active}/${activeToolInfo.total})`
+              : `(${tools.length})`}
           </span>
           {expandedSection === 'tools' ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>

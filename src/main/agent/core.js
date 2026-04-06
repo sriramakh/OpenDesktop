@@ -22,6 +22,7 @@ const {
   callLLM,
   callWithTools,
   getCurrentProvider,
+  getCurrentModel,
 } = require('./llm');
 
 class AgentCore {
@@ -68,7 +69,7 @@ class AgentCore {
     // Create the agent loop (stateless — reused for every message)
     this._loop = new AgentLoop({
       toolRegistry,
-      llm: { callWithTools, getCurrentProvider },
+      llm: { callWithTools, getCurrentProvider, getCurrentModel },
       permissions,
       emit:         this._emitWrapper.bind(this),
       memory,
@@ -417,7 +418,7 @@ class AgentCore {
     return `${persona.systemPrompt}${modeInstruction}
 
 You are OpenDesktop, an autonomous AI agent running natively on ${user}'s ${platform} computer.
-You have 160+ tools that execute directly on this machine (filesystem, office docs, browser, web, system, AI, presentations, Excel, databases, messaging, and more).
+You have FULL PERMISSION to use all provided tools on this machine. The user has explicitly authorized you to access files, browser tabs, applications, and system resources. You MUST use the provided tools to fulfill requests — NEVER refuse by saying you "cannot access" local resources. You CAN and SHOULD use tools for filesystem, browser, apps, office docs, web, system, presentations, Excel, databases, messaging, and more.
 
 ## Skill-first workflow — CRITICAL
 You have procedural skill files with verified, step-by-step instructions. **ALWAYS read the skill BEFORE attempting any non-trivial task.**
@@ -478,7 +479,9 @@ You have procedural skill files with verified, step-by-step instructions. **ALWA
 - User: ${user}
 - Home: ${home}
 - Active app: ${context.activeApp || 'unknown'}
-- Time: ${now}${runningApps}${memorySection}`;
+- Time: ${now}${runningApps}${memorySection}
+
+IMPORTANT REMINDER: You are running locally on this computer with FULL tool access. When the user asks about files, tabs, apps, or anything on their machine — ALWAYS call the appropriate tool. NEVER say you "cannot access" or "don't have access" — you DO have access through your tools.`;
   }
 
   // ---------------------------------------------------------------------------
@@ -532,10 +535,12 @@ You have procedural skill files with verified, step-by-step instructions. **ALWA
     const lower = msg.toLowerCase();
     const wordCount = msg.split(/\s+/).length;
 
-    // Simple: greetings, short factual questions, single-action requests
+    // Simple: ONLY greetings and pure knowledge questions (no tool action needed)
     if (wordCount <= 5 && /^(hi|hello|hey|thanks|thank you|ok|okay|sure|yes|no)\b/i.test(lower)) return 'simple';
-    if (wordCount <= 12 && /^(what|who|when|where|how much|how many|what's|who's)\b/.test(lower) && !/\b(and|compare|versus|vs|both|research|analyze|create|build|make|generate)\b/.test(lower)) return 'simple';
-    if (wordCount <= 8 && /^(tell me the time|what time|current date|what day)/i.test(lower)) return 'simple';
+    // Tool-needing keywords — if present, NEVER classify as simple
+    const needsTools = /\b(tab|tabs|file|files|folder|directory|desktop|download|app|apps|running|screen|browser|chrome|safari|pdf|docx|xlsx|csv|pptx|open|read|write|search|list|organize|move|delete|copy|run|execute|install|remind|schedule|send|post|comment|like|follow|feed|profile|dashboard|presentation|slide|excel|tiktok|instagram|twitter|slack|jira|notion|github|database|query)\b/.test(lower);
+    if (!needsTools && wordCount <= 12 && /^(what|who|when|where|how much|how many|what's|who's)\b/.test(lower) && !/\b(and|compare|versus|vs|both|research|analyze|create|build|make|generate)\b/.test(lower)) return 'simple';
+    if (!needsTools && wordCount <= 8 && /^(tell me the time|what time|current date|what day)/i.test(lower)) return 'simple';
 
     // Complex: multi-entity, comparisons, research + creation, long instructions
     if (/\b(compare|versus|vs\.?)\b/.test(lower)) return 'complex';

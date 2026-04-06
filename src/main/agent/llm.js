@@ -37,9 +37,11 @@ const MODEL_CATALOG = {
       { id: 'qwen2.5',            name: 'Qwen 2.5 7B',         ctx: 131072 },
       { id: 'qwen2.5:72b',        name: 'Qwen 2.5 72B',        ctx: 131072 },
       { id: 'qwen3',              name: 'Qwen 3 8B',           ctx: 131072 },
+      { id: 'qwen3.5:9b',         name: 'Qwen 3.5 9B',         ctx: 131072 },
       { id: 'mistral',            name: 'Mistral 7B',          ctx: 32768  },
       { id: 'mixtral',            name: 'Mixtral 8x7B',        ctx: 32768  },
       { id: 'mistral-nemo',       name: 'Mistral Nemo 12B',    ctx: 131072 },
+      { id: 'gemma4',             name: 'Gemma 4 12B',         ctx: 131072 },
       { id: 'gemma3',             name: 'Gemma 3 12B',         ctx: 131072 },
       { id: 'command-r',          name: 'Command R 35B',       ctx: 131072 },
     ],
@@ -291,6 +293,7 @@ function configure(newSettings) {
 function setKeyStore(ks) { _keyStore = ks; }
 
 function getCurrentProvider() { return settings.provider; }
+function getCurrentModel() { return settings.model; }
 
 // ---------------------------------------------------------------------------
 // Ollama: list locally available models
@@ -798,34 +801,56 @@ async function _ollamaWithTools(
   let finalMessage = null;
   let finalUsage   = null;
 
-  await httpStreamRequest(url, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(bodyObj),
-  }, (line) => {
-    if (!line.trim()) return;
-    let ev;
-    try { ev = JSON.parse(line); } catch { return; }
+  async function doRequest(body) {
+    fullText = '';
+    finalMessage = null;
+    finalUsage = null;
 
-    // Stream partial text chunks (not emitted on final done=true chunk)
-    const content = ev.message?.content;
-    if (content && !ev.done) {
-      fullText += content;
-      if (options?.onTextToken) options.onTextToken(content);
-    }
+    await httpStreamRequest(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    }, (line) => {
+      if (!line.trim()) return;
+      let ev;
+      try { ev = JSON.parse(line); } catch { return; }
 
-    if (ev.done) {
-      finalMessage = ev.message || {};
-      // In tool-call scenarios, Ollama may withhold text until done=true
-      if (finalMessage.content && !fullText) {
-        fullText = finalMessage.content;
-        if (options?.onTextToken) options.onTextToken(fullText);
+      // Detect "does not support tools" error in stream
+      if (ev.error) {
+        throw new Error(ev.error);
       }
-      if (ev.prompt_eval_count || ev.eval_count) {
-        finalUsage = { inputTokens: ev.prompt_eval_count || 0, outputTokens: ev.eval_count || 0 };
+
+      const content = ev.message?.content;
+      if (content && !ev.done) {
+        fullText += content;
+        if (options?.onTextToken) options.onTextToken(content);
       }
+
+      if (ev.done) {
+        finalMessage = ev.message || {};
+        if (finalMessage.content && !fullText) {
+          fullText = finalMessage.content;
+          if (options?.onTextToken) options.onTextToken(fullText);
+        }
+        if (ev.prompt_eval_count || ev.eval_count) {
+          finalUsage = { inputTokens: ev.prompt_eval_count || 0, outputTokens: ev.eval_count || 0 };
+        }
+      }
+    });
+  }
+
+  // Try with tools first; if model doesn't support them, retry without
+  try {
+    await doRequest(JSON.stringify(bodyObj));
+  } catch (err) {
+    if (err.message && /does not support tools|tool.*not supported/i.test(err.message)) {
+      console.warn(`[LLM] Ollama: ${model} does not support tools — retrying without tools`);
+      delete bodyObj.tools;
+      await doRequest(JSON.stringify(bodyObj));
+    } else {
+      throw err;
     }
-  });
+  }
 
   const toolCallsRaw = finalMessage?.tool_calls || [];
   const rawContent   = [];
@@ -1313,6 +1338,7 @@ module.exports = {
   getModelCatalog,
   listOllamaModels,
   getCurrentProvider,
+  getCurrentModel,
   resolveApiKey,
   TOKEN_COSTS,
   estimateCost,

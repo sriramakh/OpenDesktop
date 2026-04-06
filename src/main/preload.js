@@ -112,6 +112,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── Tools ──────────────────────────────────────────────────────────────────
   listTools: () => ipcRenderer.invoke('tools:list'),
+  activeTools: () => ipcRenderer.invoke('tools:active'),
 
   // ── Models ─────────────────────────────────────────────────────────────────
   getModelCatalog:   ()         => ipcRenderer.invoke('models:catalog'),

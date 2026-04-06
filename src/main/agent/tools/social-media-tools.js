@@ -650,53 +650,93 @@ const PLATFORMS = {
         var results = [];
         for (var i = 0; i < Math.min(tweets.length, 10); i++) {
           var el = tweets[i];
-          var authorEl = el.querySelector('div[data-testid="User-Name"] a');
+          /* Author: extract @handle from User-Name div */
+          var userNameDiv = el.querySelector('div[data-testid="User-Name"]');
+          var authorText = userNameDiv ? userNameDiv.textContent.trim() : '';
+          var handleMatch = authorText.match(/@(\\w+)/);
+          var author = handleMatch ? handleMatch[1] : authorText.split('\\n')[0];
+          /* Tweet text */
           var textEl = el.querySelector('div[data-testid="tweetText"]');
+          /* Link to tweet */
           var linkEl = el.querySelector('a[href*="/status/"]');
-          var statsEls = el.querySelectorAll('div[data-testid="reply"], div[data-testid="retweet"], div[data-testid="like"]');
+          /* Stats from aria-labels */
+          var likeBtn = el.querySelector('button[data-testid="like"], button[data-testid="unlike"]');
+          var replyBtn = el.querySelector('button[data-testid="reply"]');
+          var retweetBtn = el.querySelector('button[data-testid="retweet"]');
+          var bookmarkBtn = el.querySelector('button[data-testid="bookmark"]');
+          var likeLabel = likeBtn ? likeBtn.getAttribute('aria-label') : '';
+          var likeCount = likeLabel ? likeLabel.match(/(\\d[\\d,.KMB]*)/) : null;
+          /* Time */
+          var timeEl = el.querySelector('time');
           results.push({
             index: i,
-            author: authorEl ? authorEl.textContent.trim() : '',
+            author: author,
             description: textEl ? textEl.textContent.trim().slice(0, 280) : '',
             link: linkEl ? linkEl.href : '',
-            stats: Array.from(statsEls).map(function(s){ return s.getAttribute('aria-label') || s.textContent.trim(); }),
+            likes: likeCount ? likeCount[1] : '',
+            replyLabel: replyBtn ? replyBtn.getAttribute('aria-label') : '',
+            retweetLabel: retweetBtn ? retweetBtn.getAttribute('aria-label') : '',
+            time: timeEl ? timeEl.getAttribute('datetime') : '',
           });
         }
         return results;
       `,
       readPost: `
-        var tweet = document.querySelector('article[data-testid="tweet"]');
-        if (!tweet) return { error: 'No tweet found on page.' };
-        var author = tweet.querySelector('div[data-testid="User-Name"]');
-        var text = tweet.querySelector('div[data-testid="tweetText"]');
-        var replies = document.querySelectorAll('div[data-testid="cellInnerDiv"] article[data-testid="tweet"]');
+        var tweets = document.querySelectorAll('article[data-testid="tweet"]');
+        if (!tweets.length) return { error: 'No tweet found on page.' };
+        var main = tweets[0];
+        var userNameDiv = main.querySelector('div[data-testid="User-Name"]');
+        var authorText = userNameDiv ? userNameDiv.textContent.trim() : '';
+        var handleMatch = authorText.match(/@(\\w+)/);
+        var author = handleMatch ? handleMatch[1] : authorText;
+        var text = main.querySelector('div[data-testid="tweetText"]');
+        var likeBtn = main.querySelector('button[data-testid="like"], button[data-testid="unlike"]');
+        var likeLabel = likeBtn ? likeBtn.getAttribute('aria-label') : '';
+        /* Replies: all tweets after the first in the thread */
         var commentList = [];
-        for (var i = 1; i < Math.min(replies.length, 20); i++) {
-          var r = replies[i];
-          var rAuthor = r.querySelector('div[data-testid="User-Name"]');
+        for (var i = 1; i < Math.min(tweets.length, 20); i++) {
+          var r = tweets[i];
+          var rUserDiv = r.querySelector('div[data-testid="User-Name"]');
           var rText = r.querySelector('div[data-testid="tweetText"]');
+          var rHandle = rUserDiv ? (rUserDiv.textContent.match(/@(\\w+)/) || [])[1] || rUserDiv.textContent.trim().slice(0,30) : '';
           commentList.push({
             index: i - 1,
-            author: rAuthor ? rAuthor.textContent.trim() : '',
-            text: rText ? rText.textContent.trim() : '',
+            author: rHandle,
+            text: rText ? rText.textContent.trim().slice(0, 280) : '',
           });
         }
         return {
-          author: author ? author.textContent.trim() : '',
+          author: author,
           description: text ? text.textContent.trim() : '',
+          likes: likeLabel,
+          commentCount: commentList.length + ' visible replies',
           comments: commentList,
           url: window.location.href,
         };
       `,
       readProfile: `
-        var name = document.querySelector('div[data-testid="UserName"] span');
-        var bio = document.querySelector('div[data-testid="UserDescription"]');
-        var stats = document.querySelectorAll('a[href*="/followers"] span, a[href*="/following"] span');
+        /* Extract from URL + meta + DOM */
+        var urlMatch = window.location.href.match(/x\\.com\\/([^/]+)/);
+        var username = urlMatch ? urlMatch[1] : '';
+        /* Meta description: "X posts from Name (@handle)" or similar */
+        var metaDesc = document.querySelector('meta[name="description"]');
+        var metaText = metaDesc ? metaDesc.content : '';
+        /* DOM selectors */
+        var nameEl = document.querySelector('div[data-testid="UserName"] span');
+        var bioEl = document.querySelector('div[data-testid="UserDescription"]');
+        /* Followers/following from links */
+        var followingLink = document.querySelector('a[href$="/following"]');
+        var followersLink = document.querySelector('a[href$="/verified_followers"], a[href$="/followers"]');
+        var followingCount = followingLink ? followingLink.textContent.trim().split(' ')[0] : '';
+        var followersCount = followersLink ? followersLink.textContent.trim().split(' ')[0] : '';
+        var avatar = document.querySelector('img[alt="Opens profile photo"]');
         return {
-          username: name ? name.textContent.trim() : '',
-          bio: bio ? bio.textContent.trim() : '',
-          followers: stats.length > 0 ? stats[0].textContent.trim() : '',
-          following: stats.length > 1 ? stats[1].textContent.trim() : '',
+          username: username,
+          displayName: nameEl ? nameEl.textContent.trim() : username,
+          bio: bioEl ? bioEl.textContent.trim() : '',
+          followers: followersCount,
+          following: followingCount,
+          avatar: avatar ? avatar.src : '',
           url: window.location.href,
         };
       `,
@@ -704,39 +744,60 @@ const PLATFORMS = {
         var items = document.querySelectorAll('div[data-testid="cellInnerDiv"]');
         var results = [];
         for (var i = 0; i < Math.min(items.length, 20); i++) {
-          results.push({ index: i, text: items[i].textContent.trim().slice(0, 200) });
+          var text = items[i].textContent.trim();
+          if (text.length > 5 && text.length < 500) {
+            results.push({ index: results.length, text: text.slice(0, 200) });
+          }
         }
         return { count: results.length, notifications: results };
       `,
-      scroll: `window.scrollBy(0, window.innerHeight * 2); return 'Scrolled down.';`,
+      scroll: `window.scrollBy(0, window.innerHeight * 2); return 'Scrolled down ' + (window.innerHeight * 2) + 'px.';`,
       like: `
-        var btn = document.querySelector('article[data-testid="tweet"] button[data-testid="like"]');
-        if (!btn) return 'Like button not found.';
+        var tweet = document.querySelector('article[data-testid="tweet"]');
+        if (!tweet) return 'No tweet found.';
+        var btn = tweet.querySelector('button[data-testid="like"]');
+        if (!btn) {
+          var unlike = tweet.querySelector('button[data-testid="unlike"]');
+          if (unlike) return 'Already liked this tweet.';
+          return 'Like button not found.';
+        }
         btn.click();
-        return 'Liked the tweet.';
+        return 'Liked the tweet. ' + (btn.getAttribute('aria-label') || '');
       `,
       follow: `
-        var btns = document.querySelectorAll('div[data-testid$="-follow"]');
-        if (btns.length === 0) return 'Follow button not found.';
-        btns[0].click();
-        return 'Followed user.';
+        var btns = document.querySelectorAll('button[data-testid$="-follow"]');
+        if (btns.length > 0) {
+          btns[0].click();
+          var label = btns[0].getAttribute('aria-label') || '';
+          return 'Followed user. ' + label;
+        }
+        return 'Follow button not found — navigate to a profile or check the feed for follow suggestions.';
       `,
       clickCommentBox: `
-        var reply = document.querySelector('div[data-testid="tweetTextarea_0"], div[data-testid="reply"]');
-        if (reply) { reply.click(); return 'COMMENT_INPUT_READY'; }
+        /* X.com: click the Reply button on the first tweet to open reply dialog */
+        var tweet = document.querySelector('article[data-testid="tweet"]');
+        var replyBtn = tweet ? tweet.querySelector('button[data-testid="reply"]') : null;
+        if (replyBtn) { replyBtn.click(); return 'COMMENT_PANEL_OPENING'; }
         return 'COMMENT_INPUT_NOT_FOUND';
       `,
       typeComment: (text) => `
-        var input = document.querySelector('div[data-testid="tweetTextarea_0"] [contenteditable]');
+        /* X.com DraftJS blocks programmatic input in production.
+           Using clipboard paste which DraftJS does handle. */
+        var editors = document.querySelectorAll('.public-DraftEditor-content[contenteditable="true"]');
+        var input = editors[editors.length - 1];
         if (!input) return 'Reply input not found.';
         input.focus();
-        document.execCommand('insertText', false, ${JSON.stringify(text)});
-        return 'Typed reply text.';
+        /* Write to clipboard and paste */
+        navigator.clipboard.writeText(${JSON.stringify(text)}).then(function(){
+          document.execCommand('paste');
+        });
+        return 'PASTE_PENDING';
       `,
       submitComment: `
-        var btn = document.querySelector('div[data-testid="tweetButtonInline"], button[data-testid="tweetButton"]');
-        if (btn) { btn.click(); return 'Reply posted.'; }
-        return 'Reply button not found.';
+        var btn = document.querySelector('button[data-testid="tweetButton"]');
+        if (!btn) btn = document.querySelector('button[data-testid="tweetButtonInline"]');
+        if (btn && !btn.disabled) { btn.click(); return 'Reply posted.'; }
+        return 'Post button disabled — X.com blocks automated replies via DraftJS. Copy the text and paste it manually, then click Reply.';
       `,
     },
   },
@@ -1002,19 +1063,29 @@ const SOCIAL_MEDIA_TOOLS = [
       }
       if (!commentText) throw new Error('text is required (or set a business context for auto-generation)');
 
-      // Click comment area — may need to wait for panel to open
+      // Click comment area — may need to wait for panel/dialog to open
       let readyCheck = await execJS(browser, tab.windowIndex, tab.tabIndex, p.js.clickCommentBox);
       if (readyCheck.includes('NAVIGATING') || readyCheck.includes('PANEL_OPENING')) {
-        // Wait for comment panel/page to load, then retry
+        // Wait for comment panel/page/dialog to load
         await new Promise(r => setTimeout(r, 2500));
         const newTab = await ensureTab(browser, p);
         tab = newTab;
-        readyCheck = await execJS(browser, tab.windowIndex, tab.tabIndex, p.js.clickCommentBox);
+        // After waiting, check directly for an editable input (don't re-click)
+        const editorCheck = await execJS(browser, tab.windowIndex, tab.tabIndex,
+          `var e = document.querySelectorAll('.public-DraftEditor-content[contenteditable="true"], [contenteditable="true"][role="textbox"], textarea[aria-label*="comment"], textarea[placeholder*="comment"]');
+           if (e.length > 0) { e[e.length-1].focus(); return 'COMMENT_INPUT_READY'; }
+           return 'COMMENT_INPUT_NOT_FOUND';`
+        );
+        readyCheck = editorCheck;
       }
-      if (readyCheck.includes('NOT_FOUND') || readyCheck.includes('PANEL_OPENING')) {
+      if (readyCheck.includes('NOT_FOUND')) {
         // One more retry with longer wait
         await new Promise(r => setTimeout(r, 2000));
-        readyCheck = await execJS(browser, tab.windowIndex, tab.tabIndex, p.js.clickCommentBox);
+        readyCheck = await execJS(browser, tab.windowIndex, tab.tabIndex,
+          `var e = document.querySelectorAll('.public-DraftEditor-content[contenteditable="true"], [contenteditable="true"][role="textbox"]');
+           if (e.length > 0) { e[e.length-1].focus(); return 'COMMENT_INPUT_READY'; }
+           return 'COMMENT_INPUT_NOT_FOUND';`
+        );
       }
       if (readyCheck.includes('NOT_FOUND')) {
         return `Could not find the comment input. Make sure you're on a post/video page and the comment section is visible.`;
@@ -1022,9 +1093,29 @@ const SOCIAL_MEDIA_TOOLS = [
       await new Promise(r => setTimeout(r, 500));
 
       // Type the comment
-      const typeJS = typeof p.js.typeComment === 'function' ? p.js.typeComment(commentText) : p.js.typeComment;
-      await execJS(browser, tab.windowIndex, tab.tabIndex, typeJS);
-      await new Promise(r => setTimeout(r, 300));
+      if (typeof p.js.typeComment === 'function' && p.js.typeComment('').includes('PASTE_PENDING')) {
+        // X.com: DraftJS blocks execCommand. Use OS clipboard + Cmd+V paste.
+        const { appName } = resolveBrowser(browser);
+        // Set system clipboard via pbcopy
+        const { execSync } = require('child_process');
+        execSync(`printf '%s' ${JSON.stringify(commentText)} | pbcopy`);
+        // Focus editor
+        await execJS(browser, tab.windowIndex, tab.tabIndex,
+          `var e=document.querySelectorAll('.public-DraftEditor-content[contenteditable="true"]'); if(e.length)e[e.length-1].focus(); 'ok';`
+        );
+        await new Promise(r => setTimeout(r, 300));
+        // Cmd+V paste via AppleScript (triggers real ClipboardEvent that DraftJS handles)
+        await runAppleScript(
+          `tell application "${appName}" to activate\n` +
+          `delay 0.5\n` +
+          `tell application "System Events" to keystroke "v" using command down`,
+          5000
+        );
+      } else {
+        const typeJS = typeof p.js.typeComment === 'function' ? p.js.typeComment(commentText) : p.js.typeComment;
+        await execJS(browser, tab.windowIndex, tab.tabIndex, typeJS);
+      }
+      await new Promise(r => setTimeout(r, 1000));
 
       // Submit
       const submitResult = await execJS(browser, tab.windowIndex, tab.tabIndex, p.js.submitComment);

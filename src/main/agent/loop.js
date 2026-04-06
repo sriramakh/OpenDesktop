@@ -83,19 +83,21 @@ class AgentLoop {
 
       // Get tool definitions — skip entirely for fast-path (no-tools) calls
       const effectiveProvider = options.provider || this.llm.getCurrentProvider();
+      const effectiveModel = options.model || (this.llm.getCurrentModel ? this.llm.getCurrentModel() : '');
       let toolDefs;
       if (_noTools) {
         toolDefs = [];
       } else {
         const regVersion = this.toolRegistry._toolDefsVersion || 0;
-        const cached = this._toolDefsCache.get(effectiveProvider);
+        const cacheKey = `${effectiveProvider}:${effectiveModel}`;
+        const cached = this._toolDefsCache.get(cacheKey);
         if (!cached || cached.version !== regVersion) {
-          this._toolDefsCache.set(effectiveProvider, {
+          this._toolDefsCache.set(cacheKey, {
             version: regVersion,
-            defs: this.toolRegistry.getToolDefinitions(effectiveProvider),
+            defs: this.toolRegistry.getToolDefinitions(effectiveProvider, effectiveModel),
           });
         }
-        toolDefs = this._toolDefsCache.get(effectiveProvider).defs;
+        toolDefs = this._toolDefsCache.get(cacheKey).defs;
       }
 
       // Truncate conversation if it's getting too large for the model's context
